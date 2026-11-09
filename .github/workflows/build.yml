@@ -1,12 +1,11 @@
-# Volitelné: sestavení APK na GitHubu. Bez nastavených secrets vznikne debug
-# APK (podepsaná náhodným klíčem běžce — aktualizace přes ni nepůjde
-# nainstalovat přes starou verzi). Se secrets vznikne podepsaná release APK.
+# Sestavení APK na GitHubu.
 #
-# Secrets (Settings > Secrets and variables > Actions):
-#   PMT_KEYSTORE_B64       base64 souboru .jks  (base64 -w0 release.jks)
-#   PMT_KEYSTORE_PASSWORD
-#   PMT_KEY_ALIAS
-#   PMT_KEY_PASSWORD
+# Podepisování (aby šly aktualizace instalovat přes starou verzi) — dva secrets
+# v Settings > Secrets and variables > Actions:
+#   PMT_KEYSTORE_B64       klíč release.p12 zakódovaný v base64
+#   PMT_KEYSTORE_PASSWORD  heslo ke klíči
+# S nimi vznikne podepsaná app-release.apk. Bez nich jen debug APK
+# s náhodným klíčem (aktualizace přes ni nepůjdou).
 #
 # Tag "v1.0.1" navíc vytvoří GitHub Release s APK — z toho umí aktualizovat Obtainium.
 name: Build APK
@@ -38,30 +37,30 @@ jobs:
       - name: Keystore
         if: env.KS_B64 != ''
         run: |
-          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "PMT_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "$KS_B64" | tr -d ' \n\r' | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "PMT_KEYSTORE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
 
       - name: Build
         env:
           PMT_KEYSTORE_PASSWORD: ${{ secrets.PMT_KEYSTORE_PASSWORD }}
-          PMT_KEY_ALIAS: ${{ secrets.PMT_KEY_ALIAS }}
-          PMT_KEY_PASSWORD: ${{ secrets.PMT_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          TASK=assembleDebug
-          if [ -n "${PMT_KEYSTORE:-}" ]; then TASK=assembleRelease; fi
+          # Bez klíče: debug APK + kontrolní (nepodepsaný) release build,
+          # ať se chyby release buildu ukážou hned.
+          TASKS="assembleDebug assembleRelease"
+          if [ -n "${PMT_KEYSTORE:-}" ] && [ -n "${PMT_KEYSTORE_PASSWORD:-}" ]; then TASKS="assembleRelease"; fi
           set +e
-          ./gradlew --no-daemon --console=plain "$TASK" > build.log 2>&1
+          ./gradlew --no-daemon --console=plain $TASKS > build.log 2>&1
           rc=$?
           set -e
           cat build.log
           if [ $rc -ne 0 ]; then
-            # Surface the real error as an annotation, so it is visible
-            # without opening the full log.
+            # Skutečnou chybu ukázat jako anotaci, ať je vidět bez otevírání logu.
             msg=$(grep -E "^e: |error:|What went wrong|Could not|> |FAILURE|Caused by" build.log | head -60 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error title=Gradle build failed::${msg}"
             exit $rc
           fi
+          rm -f app/build/outputs/apk/release/*-unsigned.apk
 
       - uses: actions/upload-artifact@v4
         with:

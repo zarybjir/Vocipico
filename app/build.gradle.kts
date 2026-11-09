@@ -16,17 +16,22 @@ android {
         versionName = "1.1"
     }
 
-    // Podepisování release buildu: hodnoty z proměnných prostředí (GitHub
-    // Actions) nebo z ~/.gradle/gradle.properties. Když chybí, vznikne debug APK.
-    fun prop(name: String): String? = System.getenv(name) ?: (project.findProperty(name) as String?)
+    // Podepisování release buildu: cesta ke klíči (PMT_KEYSTORE) a heslo
+    // (PMT_KEYSTORE_PASSWORD) z proměnných prostředí (GitHub Actions) nebo
+    // z ~/.gradle/gradle.properties. Bez nich vznikne jen debug APK.
+    fun prop(name: String): String? =
+        (System.getenv(name) ?: (project.findProperty(name) as String?))?.takeIf { it.isNotBlank() }
     val ksPath = prop("PMT_KEYSTORE")
-    if (ksPath != null) {
+    val ksPassword = prop("PMT_KEYSTORE_PASSWORD")
+    val canSign = ksPath != null && ksPassword != null
+    if (canSign) {
         signingConfigs {
             create("release") {
-                storeFile = file(ksPath)
-                storePassword = prop("PMT_KEYSTORE_PASSWORD")
-                keyAlias = prop("PMT_KEY_ALIAS")
-                keyPassword = prop("PMT_KEY_PASSWORD")
+                storeFile = file(ksPath!!)
+                storeType = "PKCS12"
+                storePassword = ksPassword
+                keyAlias = "precti"
+                keyPassword = ksPassword
             }
         }
     }
@@ -37,7 +42,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            if (ksPath != null) signingConfig = signingConfigs.getByName("release")
+            if (canSign) signingConfig = signingConfigs.getByName("release")
         }
     }
 

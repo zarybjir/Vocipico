@@ -72,9 +72,11 @@ V Android Studiu: File → Open → tahle složka → Build → Build APK(s).
 APK je v `app/build/outputs/apk/debug/`.
 
 Aby šly aktualizace instalovat přes starou verzi, musí být APK pokaždé
-podepsané stejným klíčem. Na GitHubu proto nastav secrets (viz
-`.github/workflows/build.yml`): `PMT_KEYSTORE_B64`, `PMT_KEYSTORE_PASSWORD`,
-`PMT_KEY_ALIAS`, `PMT_KEY_PASSWORD`.
+podepsané stejným klíčem. Klíč v repozitáři není; patří do GitHubu jako dva
+secrets (**Settings → Secrets and variables → Actions → New repository
+secret**): `PMT_KEYSTORE_B64` (klíč v base64) a `PMT_KEYSTORE_PASSWORD`.
+Pak GitHub sestavuje podepsanou `app-release.apk`. Klíč i heslo si ulož
+bezpečně i jinam — bez nich už aktualizaci stejné appky nepodepíšeš.
 
 ## Jak to funguje uvnitř
 
