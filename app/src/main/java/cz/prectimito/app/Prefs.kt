@@ -43,10 +43,11 @@ class Prefs(context: Context) {
 
     // --- Bublina ---
     val showBubble get() = b(K_SHOW_BUBBLE)
-    val bubbleSize get() = s(K_BUBBLE_SIZE)
+    val bubbleDp get() = i(K_BUBBLE_DP)
     val bubbleOpacity get() = i(K_BUBBLE_OPACITY)
     val tapAction get() = s(K_TAP_ACTION)
     val longAction get() = s(K_LONG_ACTION)
+    val doubleAction get() = s(K_DOUBLE_ACTION)
     val dropAction get() = s(K_DROP_ACTION)
     val readWhileDragging get() = b(K_DRAG_LIVE)
     val vibrate get() = b(K_VIBRATE)
@@ -84,6 +85,8 @@ class Prefs(context: Context) {
     val pitch get() = i(K_PITCH) / 100f
     val language get() = s(K_LANGUAGE)
     val audioStream get() = s(K_STREAM)
+    val engine get() = s(K_ENGINE)
+    val voice get() = s(K_VOICE)
 
     // --- Výkon ---
     val maxNodes get() = i(K_MAX_NODES)
@@ -123,10 +126,11 @@ class Prefs(context: Context) {
         const val K_SKIP_SYMBOLS = "skip_symbols"
 
         const val K_SHOW_BUBBLE = "show_bubble"
-        const val K_BUBBLE_SIZE = "bubble_size"
+        const val K_BUBBLE_DP = "bubble_dp"
         const val K_BUBBLE_OPACITY = "bubble_opacity"
         const val K_TAP_ACTION = "tap_action"
         const val K_LONG_ACTION = "long_action"
+        const val K_DOUBLE_ACTION = "double_action"
         const val K_DROP_ACTION = "drop_action"
         const val K_DRAG_LIVE = "drag_live"
         const val K_VIBRATE = "vibrate"
@@ -155,6 +159,8 @@ class Prefs(context: Context) {
         const val K_PITCH = "pitch"
         const val K_LANGUAGE = "language"
         const val K_STREAM = "stream"
+        const val K_ENGINE = "engine"
+        const val K_VOICE = "voice"
 
         const val K_MAX_NODES = "max_nodes"
         const val K_THOROUGH = "thorough"
@@ -165,6 +171,7 @@ class Prefs(context: Context) {
         const val A_TEXT = "text"
         const val A_UNDER = "under"
         const val A_EXPLORE = "explore"
+        const val A_NEXT = "next"
         const val A_NONE = "none"
 
         // Pořadí čtení
@@ -210,7 +217,9 @@ class Prefs(context: Context) {
         )
         val DEFAULT_STR = mapOf(
             K_ORDER to O_GROUPS,
-            K_BUBBLE_SIZE to "large",
+            K_DOUBLE_ACTION to A_NEXT,
+            K_ENGINE to "",
+            K_VOICE to "",
             K_TAP_ACTION to A_SUMMARY,
             K_LONG_ACTION to A_EXPLORE,
             K_DROP_ACTION to A_UNDER,
@@ -229,6 +238,7 @@ class Prefs(context: Context) {
             K_PITCH to 100,
             K_MAX_NODES to 500,
             K_CAPTION_SIZE to 34,
+            K_BUBBLE_DP to 88,
         )
     }
 }

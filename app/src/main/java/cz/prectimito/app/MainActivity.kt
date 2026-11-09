@@ -102,6 +102,7 @@ class MainActivity : Activity() {
         text(
             "Jak se ovládá bublina:\n" +
                 "• klepnutí – přečte obrazovku (při čtení zastaví)\n" +
+                "• dvojklepnutí – přečte další prvek vedle bubliny\n" +
                 "• podržení – režim „klepni a přečti“: co ťukneš, to přečte; dvojí ťuknutí stiskne\n" +
                 "• přetažení – posune bublinu a přečte, co je pod ní\n" +
                 "Čtené místo se orámuje žlutě a text se ukáže velkým písmem. Klepnutím na velký text čtení zastavíš.", 18f, dim
@@ -141,10 +142,7 @@ class MainActivity : Activity() {
         // --- Bublina ---
         section("Bublina")
         switch(Prefs.K_SHOW_BUBBLE, "Zobrazovat bublinu")
-        choice(
-            Prefs.K_BUBBLE_SIZE, "Velikost",
-            listOf("small" to "Malá", "medium" to "Střední", "large" to "Velká", "xlarge" to "Hodně velká")
-        )
+        slider(Prefs.K_BUBBLE_DP, "Velikost bubliny", 40, 160, 8) { "$it" }
         slider(Prefs.K_BUBBLE_OPACITY, "Neprůhlednost", 30, 100, 10) { "$it %" }
         val actions = listOf(
             Prefs.A_SUMMARY to "Přečíst obrazovku",
@@ -152,9 +150,13 @@ class MainActivity : Activity() {
             Prefs.A_TEXT to "Číst text (článek)",
             Prefs.A_UNDER to "Přečíst, co je pod bublinou",
             Prefs.A_EXPLORE to "Režim klepni a přečti",
+            Prefs.A_NEXT to "Přečíst další prvek u bubliny",
             Prefs.A_NONE to "Nic",
         )
         choice(Prefs.K_TAP_ACTION, "Klepnutí", actions)
+        choice(Prefs.K_DOUBLE_ACTION, "Dvojklepnutí", actions.map {
+            if (it.first == Prefs.A_NONE) it.first to "Nic (klepnutí pak reaguje bez čekání)" else it
+        })
         choice(Prefs.K_LONG_ACTION, "Podržení", actions)
         choice(Prefs.K_DROP_ACTION, "Po přetažení", actions)
         switch(Prefs.K_DRAG_LIVE, "Číst už během přetahování", "Jako lupa: zastavíš prst a přečte, co je pod ním.")
@@ -202,6 +204,12 @@ class MainActivity : Activity() {
         slider(Prefs.K_RATE, "Rychlost", 50, 250, 10) { String.format("%.1f×", it / 100f) }
         slider(Prefs.K_PITCH, "Výška hlasu", 50, 200, 10) { String.format("%.1f×", it / 100f) }
         choice(Prefs.K_LANGUAGE, "Jazyk", listOf("cs" to "Čeština", "sk" to "Slovenčina", "system" to "Podle telefonu"))
+        dynamicChoice(Prefs.K_VOICE, "Hlas", "Automaticky") {
+            ReaderService.instance?.voiceOptions()
+        }
+        dynamicChoice(Prefs.K_ENGINE, "Hlasový modul", "Výchozí v telefonu") {
+            ReaderService.instance?.engineOptions()
+        }
         choice(
             Prefs.K_STREAM, "Hlasitost se řídí",
             listOf("media" to "Jako hudba a videa", "a11y" to "Hlasitostí přístupnosti")
@@ -338,6 +346,43 @@ class MainActivity : Activity() {
                     prefs.sp.edit().putString(key, options[which].first).apply()
                     render()
                     d.dismiss()
+                }
+                .setNegativeButton("Zpět", null)
+                .show()
+        }
+    }
+
+    /** Výběr, jehož možnosti se zjistí až při klepnutí (hlasy, moduly). Po výběru zazní ukázka. */
+    private fun dynamicChoice(
+        key: String, label: String, autoLabel: String,
+        provider: () -> List<Pair<String, String>>?,
+    ) {
+        val t = text("", 20f, fg)
+        t.minHeight = dp(56)
+        t.gravity = Gravity.CENTER_VERTICAL
+        var names: List<Pair<String, String>> = emptyList()
+        fun render() {
+            val cur = prefs.sp.getString(key, "") ?: ""
+            val name = if (cur.isEmpty()) autoLabel else names.firstOrNull { it.first == cur }?.second ?: "vybraný"
+            t.text = "$label:\n▸ $name"
+        }
+        render()
+        t.setOnClickListener {
+            val list = provider()
+            if (list == null) { toastSay("Nejdřív zapni čtečku."); return@setOnClickListener }
+            if (list.isEmpty()) { toastSay("Žádné další možnosti nejsou. Hlasy jde stáhnout v nastavení hlasu v telefonu."); return@setOnClickListener }
+            names = list
+            val all = listOf("" to autoLabel) + list
+            val cur = prefs.sp.getString(key, "") ?: ""
+            val idx = all.indexOfFirst { it.first == cur }.coerceAtLeast(0)
+            AlertDialog.Builder(this)
+                .setTitle(label)
+                .setSingleChoiceItems(all.map { it.second }.toTypedArray(), idx) { d, which ->
+                    prefs.sp.edit().putString(key, all[which].first).apply()
+                    render()
+                    d.dismiss()
+                    // Ukázka až chvíli po přepnutí (modul se může spouštět).
+                    t.postDelayed({ ReaderService.instance?.testVoice("Dobrý den, takhle budu číst.") }, 700)
                 }
                 .setNegativeButton("Zpět", null)
                 .show()

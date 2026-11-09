@@ -114,6 +114,63 @@ class ScreenScanner(private val p: Prefs) {
         return best
     }
 
+    /**
+     * Odhadne, co chce člověk přečíst, když na místo položí bublinu [area].
+     * Vrátí kandidáty seřazené od nejpravděpodobnějšího: prvek pod středem
+     * bubliny, prvky, které bublina překrývá, a pak ty nejblíž kolem ní.
+     */
+    fun candidatesNear(root: AccessibilityNodeInfo?, area: Rect, screenArea: Long): List<Item> {
+        if (root == null) return emptyList()
+        val cx = area.centerX()
+        val cy = area.centerY()
+        val radius = maxOf(area.width(), area.height()) * 1.5f
+        val zone = Rect(area).apply { inset(-radius.toInt(), -radius.toInt()) }
+        val bubbleArea = maxOf(1L, area.width().toLong() * area.height())
+        val scored = ArrayList<Pair<Float, Item>>()
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        val r = Rect()
+        val inter = Rect()
+        var visited = 0
+        while (stack.isNotEmpty()) {
+            val node = stack.removeLast()
+            visited++
+            try {
+                node.getBoundsInScreen(r)
+                // Větve mimo okolí bubliny vůbec neprocházíme — šetří čas.
+                if (!Rect.intersects(r, zone) || !node.isVisibleToUser) continue
+                if (p.skipAds && looksLikeAd(node)) continue
+                val item = toItem(node)
+                if (item != null) {
+                    val size = r.width().toLong() * r.height()
+                    val dx = when { cx < r.left -> r.left - cx; cx > r.right -> cx - r.right; else -> 0 }
+                    val dy = when { cy < r.top -> r.top - cy; cy > r.bottom -> cy - r.bottom; else -> 0 }
+                    val dist = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                    if (dist <= radius) {
+                        val overlap = if (inter.setIntersect(r, area)) inter.width().toLong() * inter.height() else 0L
+                        var score = 2f * overlap / bubbleArea - dist / radius
+                        if (dx == 0 && dy == 0) score += 1.5f
+                        if (item.kind != Item.Kind.TEXT) score += 0.3f
+                        // Obří bloky (celá stránka) jsou málokdy to, co člověk myslí.
+                        score -= 1.5f * size / maxOf(1L, screenArea)
+                        scored.add(score to item)
+                    }
+                }
+                if (visited < p.maxNodes) {
+                    for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
+                }
+            } catch (_: Exception) {
+            } finally {
+                recycle(node)
+            }
+        }
+        while (stack.isNotEmpty()) recycle(stack.removeLast())
+        val seen = HashSet<String>()
+        return scored.sortedByDescending { it.first }.map { it.second }
+            .filter { hasLetterOrDigit(it.label) && seen.add(it.kind.name + "|" + it.label) }
+            .take(8)
+    }
+
     /** Stiskne nejmenší klikatelný prvek pod bodem (x, y). */
     fun clickAt(root: AccessibilityNodeInfo?, x: Int, y: Int): Boolean {
         if (root == null) return false

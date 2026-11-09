@@ -20,7 +20,7 @@ class Seg(val text: String, val rect: Rect? = null)
  * to zvýraznit a ukázat velkým písmem.
  */
 class Speaker(
-    context: Context,
+    private val context: Context,
     private val p: Prefs,
     private val onSpeakingChanged: (Boolean) -> Unit,
     /** Začala se číst tahle část (null = dočteno / zastaveno). */
@@ -39,10 +39,41 @@ class Speaker(
     private var counter = 0
     private val pending = ArrayList<Seg>()
     private val segs = ConcurrentHashMap<String, Seg>()
-    private val tts: TextToSpeech
+    @Volatile private var tts: TextToSpeech
+    private var engineInUse = ""
+
+    private val progress = object : UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {
+            if (!speaking) { speaking = true; onSpeakingChanged(true) }
+            val s = utteranceId?.let { segs[it] }
+            if (s != null) onSegment(s)
+        }
+        override fun onDone(utteranceId: String?) {
+            if (utteranceId != null) segs.remove(utteranceId)
+            if (utteranceId == lastId) {
+                speaking = false
+                onSpeakingChanged(false)
+                onSegment(null)
+                onQueueDone?.invoke()
+            }
+        }
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) { onDone(utteranceId) }
+        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+            if (utteranceId != null) segs.remove(utteranceId)
+            if (speaking) { speaking = false; onSpeakingChanged(false); onSegment(null) }
+        }
+    }
 
     init {
-        tts = TextToSpeech(context.applicationContext) { status ->
+        tts = create()
+    }
+
+    /** Hlasový modul (Google, Samsung…) podle nastavení; prázdné = výchozí v telefonu. */
+    private fun create(): TextToSpeech {
+        engineInUse = p.engine
+        ready = false
+        val listener = TextToSpeech.OnInitListener { status ->
             ready = status == TextToSpeech.SUCCESS
             if (ready) {
                 applySettings()
@@ -51,40 +82,55 @@ class Speaker(
                 if (copy.isNotEmpty()) speakSegs(copy)
             }
         }
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {
-                if (!speaking) { speaking = true; onSpeakingChanged(true) }
-                val s = utteranceId?.let { segs[it] }
-                if (s != null) onSegment(s)
-            }
-            override fun onDone(utteranceId: String?) {
-                if (utteranceId != null) segs.remove(utteranceId)
-                if (utteranceId == lastId) {
-                    speaking = false
-                    onSpeakingChanged(false)
-                    onSegment(null)
-                    onQueueDone?.invoke()
-                }
-            }
-            @Deprecated("Deprecated in Java")
-            override fun onError(utteranceId: String?) { onDone(utteranceId) }
-            override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                if (utteranceId != null) segs.remove(utteranceId)
-                if (speaking) { speaking = false; onSpeakingChanged(false); onSegment(null) }
-            }
-        })
+        val t = if (engineInUse.isEmpty()) TextToSpeech(context.applicationContext, listener)
+        else TextToSpeech(context.applicationContext, listener, engineInUse)
+        t.setOnUtteranceProgressListener(progress)
+        return t
     }
+
+    /** Když se v nastavení změní hlasový modul, spustí se znovu. */
+    fun checkEngine() {
+        if (p.engine == engineInUse) return
+        val old = tts
+        try { old.stop(); old.shutdown() } catch (_: Exception) {}
+        tts = create()
+    }
+
+    private fun locale(): Locale = when (p.language) {
+        "cs" -> Locale("cs", "CZ")
+        "sk" -> Locale("sk", "SK")
+        else -> Locale.getDefault()
+    }
+
+    /** Hlasy pro zvolený jazyk: (interní jméno, popis pro člověka). Nejdřív ty bez internetu. */
+    fun voiceOptions(): List<Pair<String, String>> {
+        if (!ready) return emptyList()
+        val lang = locale().language
+        val list = try { tts.voices?.toList().orEmpty() } catch (_: Exception) { emptyList() }
+        val usable = list.filter {
+            it.locale.language == lang &&
+                !it.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+        }.sortedWith(compareBy({ it.isNetworkConnectionRequired }, { it.name }))
+        return usable.mapIndexed { i, v ->
+            val where = if (v.isNetworkConnectionRequired) "potřebuje internet, pomalejší" else "v telefonu, rychlý"
+            v.name to "Hlas ${i + 1} ($where)"
+        }
+    }
+
+    /** Hlasové moduly nainstalované v telefonu: (balíček, název). */
+    fun engineOptions(): List<Pair<String, String>> =
+        try { tts.engines.map { it.name to it.label } } catch (_: Exception) { emptyList() }
 
     fun applySettings() {
         if (!ready) return
         tts.setSpeechRate(p.rate)
         tts.setPitch(p.pitch)
-        val loc = when (p.language) {
-            "cs" -> Locale("cs", "CZ")
-            "sk" -> Locale("sk", "SK")
-            else -> Locale.getDefault()
+        tts.language = locale()
+        // Konkrétní hlas (nastavuje se až po jazyku, ten hlas přepíše).
+        val wanted = p.voice
+        if (wanted.isNotEmpty()) {
+            try { tts.voices?.firstOrNull { it.name == wanted }?.let { tts.voice = it } } catch (_: Exception) {}
         }
-        tts.language = loc
         val usage = if (p.audioStream == "a11y") AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY
         else AudioAttributes.USAGE_MEDIA
         tts.setAudioAttributes(

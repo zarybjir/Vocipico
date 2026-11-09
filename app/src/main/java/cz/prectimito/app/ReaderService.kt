@@ -92,7 +92,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
 
     override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
         if (key == "bubble_x" || key == "bubble_y") return
-        speaker.applySettings()
+        if (key == Prefs.K_ENGINE) speaker.checkEngine() else speaker.applySettings()
         applyServiceInfo()
         main.post { overlays.refreshStyle() }
         if (!overlays.exploring) updateBubble()
@@ -149,15 +149,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     // ------------------------------------------------------------------
     // Bublina
 
-    private fun bubbleSizePx(): Int {
-        val dp = when (prefs.bubbleSize) {
-            "small" -> 56
-            "medium" -> 72
-            "xlarge" -> 120
-            else -> 92
-        }
-        return (dp * resources.displayMetrics.density).toInt()
-    }
+    private fun bubbleSizePx(): Int = (prefs.bubbleDp * resources.displayMetrics.density).toInt()
 
     private fun updateBubble() {
         main.post {
@@ -168,6 +160,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
                 val p = lp ?: return@post
                 p.width = size; p.height = size
                 existing.alpha = prefs.bubbleOpacity / 100f
+                existing.doubleTapEnabled = prefs.doubleAction != Prefs.A_NONE
                 try { wm?.updateViewLayout(existing, p) } catch (_: Exception) {}
                 return@post
             }
@@ -186,6 +179,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             val v = BubbleView(this, this)
             v.alpha = prefs.bubbleOpacity / 100f
             v.speaking = speaker.speaking
+            v.doubleTapEnabled = prefs.doubleAction != Prefs.A_NONE
             try {
                 wm?.addView(v, p)
                 bubble = v; lp = p
@@ -219,6 +213,11 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         run(prefs.tapAction)
     }
 
+    override fun onBubbleDoubleTap() {
+        buzz()
+        run(prefs.doubleAction)
+    }
+
     override fun onBubbleLongPress() {
         bubble?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         run(prefs.longAction)
@@ -250,6 +249,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             Prefs.A_FORM -> readScreen { items, _ -> phrases.formOnly(items) }
             Prefs.A_TEXT -> readText()
             Prefs.A_UNDER -> readUnderBubble(quiet = false)
+            Prefs.A_NEXT -> readNextNearBubble()
             Prefs.A_EXPLORE -> main.post { if (overlays.exploring) onExploreExit() else startExplore() }
         }
     }
@@ -268,6 +268,10 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
 
     fun hasCzechVoice() = speaker.hasLanguage()
 
+    fun voiceOptions() = speaker.voiceOptions()
+
+    fun engineOptions() = speaker.engineOptions()
+
     private fun readScreen(build: (List<Item>, String) -> List<Seg>) {
         val gen = ++generation
         changeGen++
@@ -283,9 +287,72 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         }
     }
 
+    /** Plocha bubliny v souřadnicích obrazovky (stejných, jaké mají prvky aplikací). */
+    private fun bubbleRect(): Rect? {
+        val v = bubble ?: return null
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        return Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
+    }
+
+    // Kandidáti u bubliny pro dvojklepnutí „další vedle“.
+    @Volatile private var nearItems: List<Item> = emptyList()
+    @Volatile private var nearIndex = 0
+    @Volatile private var nearRect: Rect? = null
+
     private fun readUnderBubble(quiet: Boolean) {
-        val p = lp ?: return
-        readAt(p.x + p.width / 2, p.y + p.height / 2, quiet)
+        val area = bubbleRect() ?: return
+        val gen = ++generation
+        changeGen++
+        if (!quiet) speaker.stop()
+        worker.removeCallbacksAndMessages(null)
+        worker.post {
+            val list = scanner.candidatesNear(appRoot(), area, screenArea())
+            if (gen != generation) return@post
+            nearItems = list; nearIndex = 0; nearRect = area
+            val first = list.firstOrNull()
+            if (first == null) {
+                if (!quiet) speaker.say("Tady nic není.")
+                return@post
+            }
+            val seg = phrases.seg(first)
+            if (quiet && seg.text == lastHoverLabel) return@post
+            lastHoverLabel = seg.text
+            val more = if (!quiet && list.size > 1 && prefs.doubleAction == Prefs.A_NEXT) " Dvojklepnutím další." else ""
+            speaker.speakSegs(listOf(Seg(seg.text + more, seg.rect)))
+        }
+    }
+
+    /** Dvojklepnutí: přečte další prvek v okolí bubliny (dokola). */
+    private fun readNextNearBubble() {
+        val area = bubbleRect() ?: return
+        val gen = ++generation
+        changeGen++
+        speaker.stop()
+        worker.removeCallbacksAndMessages(null)
+        worker.post {
+            var list = nearItems
+            if (list.isEmpty() || nearRect != area) {
+                // Bublina se mezitím posunula — najít znovu, první už asi slyšel.
+                list = scanner.candidatesNear(appRoot(), area, screenArea())
+                nearItems = list; nearRect = area; nearIndex = 0
+            }
+            if (gen != generation) return@post
+            if (list.isEmpty()) { speaker.say("Tady nic není."); return@post }
+            if (list.size == 1) {
+                speaker.speakSegs(listOf(Seg("Jen tohle: " + phrases.describe(list[0]), list[0].bounds)))
+                return@post
+            }
+            nearIndex = (nearIndex + 1) % list.size
+            val it = list[nearIndex]
+            val prefix = if (nearIndex == 0) "Znovu první. " else ""
+            speaker.speakSegs(listOf(Seg(prefix + phrases.describe(it), it.bounds)))
+        }
+    }
+
+    private fun screenArea(): Long {
+        val dm = resources.displayMetrics
+        return dm.widthPixels.toLong() * dm.heightPixels
     }
 
     private fun readAt(x: Int, y: Int, quiet: Boolean, onlyIfNew: Boolean = false) {

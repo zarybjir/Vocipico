@@ -17,8 +17,9 @@ text a tlačítka. Zbytečnosti (reklamy, menu, ikony, cookie lišty) přeskakuj
 | gesto | co udělá |
 |---|---|
 | klepnutí | přečte obrazovku; když zrovna čte, zastaví |
+| dvojklepnutí | přečte další prvek vedle bubliny (dokola) |
 | podržení | zapne/vypne **režim klepni a přečti** |
-| přetažení | přesune bublinu a přečte, co je pod ní |
+| přetažení | přesune bublinu a přečte, co je pod ní — appka sama odhadne, který prvek myslíš |
 
 Každé gesto jde v nastavení přepnout na jinou akci.
 

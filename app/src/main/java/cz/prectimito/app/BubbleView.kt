@@ -21,11 +21,15 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
 
     interface Listener {
         fun onBubbleTap()
+        fun onBubbleDoubleTap()
         fun onBubbleLongPress()
         fun onBubbleDrag(dx: Int, dy: Int)
         fun onBubbleDragPause()
         fun onBubbleDrop()
     }
+
+    /** Když je dvojklepnutí vypnuté, reaguje jedno klepnutí okamžitě (bez čekání). */
+    var doubleTapEnabled = true
 
     var speaking = false
         set(v) { if (field != v) { field = v; invalidate() } }
@@ -55,6 +59,8 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
             listener.onBubbleLongPress()
         }
     }
+    private var lastUp = 0L
+    private val singleTap = Runnable { listener.onBubbleTap() }
     private val dragPause = Runnable { if (dragging) listener.onBubbleDragPause() }
 
     init {
@@ -97,6 +103,10 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
         }
     }
 
+    companion object {
+        private const val DOUBLE_MS = 300L
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
@@ -126,7 +136,19 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
                 handler.removeCallbacks(dragPause)
                 when {
                     dragging -> listener.onBubbleDrop()
-                    !longFired -> listener.onBubbleTap()
+                    longFired -> {}
+                    !doubleTapEnabled -> listener.onBubbleTap()
+                    else -> {
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastUp < DOUBLE_MS) {
+                            handler.removeCallbacks(singleTap)
+                            lastUp = 0
+                            listener.onBubbleDoubleTap()
+                        } else {
+                            lastUp = now
+                            handler.postDelayed(singleTap, DOUBLE_MS)
+                        }
+                    }
                 }
                 dragging = false
             }
