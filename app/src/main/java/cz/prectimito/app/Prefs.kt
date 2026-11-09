@@ -51,6 +51,24 @@ class Prefs(context: Context) {
     val readWhileDragging get() = b(K_DRAG_LIVE)
     val vibrate get() = b(K_VIBRATE)
 
+    // --- Vizuální pomoc ---
+    val highlight get() = b(K_HIGHLIGHT)
+    val caption get() = b(K_CAPTION)
+    val captionSize get() = i(K_CAPTION_SIZE)
+    val captionPos get() = s(K_CAPTION_POS)
+    val captionColors get() = s(K_CAPTION_COLORS)
+
+    // --- Režim klepni a přečti ---
+    val exploreDoubleClick get() = b(K_EXPLORE_DOUBLE)
+
+    // --- Hlášení změn ---
+    val chDialogs get() = b(K_CH_DIALOGS)
+    val chToasts get() = b(K_CH_TOASTS)
+    val chErrors get() = b(K_CH_ERRORS)
+    val chPage get() = b(K_CH_PAGE)
+    val chOther get() = b(K_CH_OTHER)
+    val anyChange get() = chDialogs || chToasts || chErrors || chPage || chOther
+
     // --- Čtení textu ---
     val autoScroll get() = b(K_AUTO_SCROLL)
 
@@ -115,6 +133,18 @@ class Prefs(context: Context) {
 
         const val K_AUTO_SCROLL = "auto_scroll"
 
+        const val K_HIGHLIGHT = "highlight"
+        const val K_CAPTION = "caption"
+        const val K_CAPTION_SIZE = "caption_size"
+        const val K_CAPTION_POS = "caption_pos"
+        const val K_CAPTION_COLORS = "caption_colors"
+        const val K_EXPLORE_DOUBLE = "explore_double"
+        const val K_CH_DIALOGS = "ch_dialogs"
+        const val K_CH_TOASTS = "ch_toasts"
+        const val K_CH_ERRORS = "ch_errors"
+        const val K_CH_PAGE = "ch_page"
+        const val K_CH_OTHER = "ch_other"
+
         const val K_ANN_FIELD = "announce_field"
         const val K_ANN_CLICK = "announce_click"
         const val K_ANN_APP = "announce_app"
@@ -134,6 +164,7 @@ class Prefs(context: Context) {
         const val A_FORM = "form"
         const val A_TEXT = "text"
         const val A_UNDER = "under"
+        const val A_EXPLORE = "explore"
         const val A_NONE = "none"
 
         // Pořadí čtení
@@ -162,6 +193,14 @@ class Prefs(context: Context) {
             K_DRAG_LIVE to false,
             K_VIBRATE to true,
             K_AUTO_SCROLL to false,
+            K_HIGHLIGHT to true,
+            K_CAPTION to true,
+            K_EXPLORE_DOUBLE to true,
+            K_CH_DIALOGS to true,
+            K_CH_TOASTS to true,
+            K_CH_ERRORS to true,
+            K_CH_PAGE to true,
+            K_CH_OTHER to false,
             K_ANN_FIELD to true,
             K_ANN_CLICK to false,
             K_ANN_APP to false,
@@ -173,10 +212,12 @@ class Prefs(context: Context) {
             K_ORDER to O_GROUPS,
             K_BUBBLE_SIZE to "large",
             K_TAP_ACTION to A_SUMMARY,
-            K_LONG_ACTION to A_TEXT,
+            K_LONG_ACTION to A_EXPLORE,
             K_DROP_ACTION to A_UNDER,
             K_LANGUAGE to "cs",
             K_STREAM to "media",
+            K_CAPTION_POS to "auto",
+            K_CAPTION_COLORS to "yellow",
         )
         val DEFAULT_INT = mapOf(
             K_MAX_HEADINGS to 3,
@@ -187,6 +228,7 @@ class Prefs(context: Context) {
             K_RATE to 100,
             K_PITCH to 100,
             K_MAX_NODES to 500,
+            K_CAPTION_SIZE to 34,
         )
     }
 }

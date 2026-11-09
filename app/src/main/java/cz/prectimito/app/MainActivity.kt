@@ -102,8 +102,9 @@ class MainActivity : Activity() {
         text(
             "Jak se ovládá bublina:\n" +
                 "• klepnutí – přečte obrazovku (při čtení zastaví)\n" +
-                "• podržení – čte text článku\n" +
-                "• přetažení – posune bublinu a přečte, co je pod ní", 18f, dim
+                "• podržení – režim „klepni a přečti“: co ťukneš, to přečte; dvojí ťuknutí stiskne\n" +
+                "• přetažení – posune bublinu a přečte, co je pod ní\n" +
+                "Čtené místo se orámuje žlutě a text se ukáže velkým písmem. Klepnutím na velký text čtení zastavíš.", 18f, dim
         )
 
         // --- Co číst ---
@@ -150,6 +151,7 @@ class MainActivity : Activity() {
             Prefs.A_FORM to "Přečíst jen formulář",
             Prefs.A_TEXT to "Číst text (článek)",
             Prefs.A_UNDER to "Přečíst, co je pod bublinou",
+            Prefs.A_EXPLORE to "Režim klepni a přečti",
             Prefs.A_NONE to "Nic",
         )
         choice(Prefs.K_TAP_ACTION, "Klepnutí", actions)
@@ -157,6 +159,31 @@ class MainActivity : Activity() {
         choice(Prefs.K_DROP_ACTION, "Po přetažení", actions)
         switch(Prefs.K_DRAG_LIVE, "Číst už během přetahování", "Jako lupa: zastavíš prst a přečte, co je pod ním.")
         switch(Prefs.K_VIBRATE, "Krátce zavibrovat po klepnutí")
+
+        section("Ukazovat, co se čte")
+        switch(Prefs.K_HIGHLIGHT, "Žlutý rámeček kolem čteného místa")
+        switch(Prefs.K_CAPTION, "Velký text toho, co se čte", "Klepnutím na něj čtení zastavíš.")
+        slider(Prefs.K_CAPTION_SIZE, "Velikost písma", 20, 64, 2) { "$it" }
+        choice(
+            Prefs.K_CAPTION_POS, "Kde ukazovat velký text",
+            listOf("auto" to "Tam, kde nepřekáží", "top" to "Vždy nahoře", "bottom" to "Vždy dole")
+        )
+        choice(
+            Prefs.K_CAPTION_COLORS, "Barvy velkého textu",
+            listOf("yellow" to "Žlutá na černé", "white" to "Bílá na černé", "black_on_yellow" to "Černá na žluté")
+        )
+
+        section("Režim klepni a přečti")
+        text("Zapíná se podržením bubliny. Co ťukneš, to se přečte, ale nic se nespustí. Tažením prstu čte, co je pod ním. Nahoře jsou tlačítka ▲ ▼ pro posun, Čti a Konec.", 18f, dim)
+        switch(Prefs.K_EXPLORE_DOUBLE, "Dvojí ťuknutí = stisknout", "Jinak se v režimu čtení nedá nic zmáčknout.")
+
+        section("Hlásit, co se změnilo")
+        text("Po klepnutí v jiné aplikaci appka chvíli sleduje obrazovku a řekne, co je nového.", 18f, dim)
+        switch(Prefs.K_CH_PAGE, "Nová stránka nebo obrazovka", "Řekne její název a jestli je na ní formulář.")
+        switch(Prefs.K_CH_ERRORS, "Chybové hlášky", "Např. „Pozor: Heslo je nesprávné.“")
+        switch(Prefs.K_CH_DIALOGS, "Vyskočená okna", "Přečte, co v okně je.")
+        switch(Prefs.K_CH_TOASTS, "Krátká hlášení dole na obrazovce")
+        switch(Prefs.K_CH_OTHER, "Všechno nové", "Upovídanější: i drobné změny.")
 
         section("Čtení textu")
         switch(Prefs.K_AUTO_SCROLL, "Po dočtení posunout stránku a číst dál", "Hodí se na dlouhé články.")

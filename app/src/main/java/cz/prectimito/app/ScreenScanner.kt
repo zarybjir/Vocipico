@@ -114,6 +114,51 @@ class ScreenScanner(private val p: Prefs) {
         return best
     }
 
+    /** Stiskne nejmenší klikatelný prvek pod bodem (x, y). */
+    fun clickAt(root: AccessibilityNodeInfo?, x: Int, y: Int): Boolean {
+        if (root == null) return false
+        var best: AccessibilityNodeInfo? = null
+        var bestArea = Long.MAX_VALUE
+        val stack = ArrayDeque<AccessibilityNodeInfo>()
+        stack.addLast(root)
+        val r = Rect()
+        var visited = 0
+        while (stack.isNotEmpty()) {
+            val node = stack.removeLast()
+            visited++
+            var keep = false
+            try {
+                node.getBoundsInScreen(r)
+                if (r.contains(x, y) && node.isVisibleToUser) {
+                    val area = r.width().toLong() * r.height()
+                    if ((node.isClickable || node.isEditable || node.isCheckable) && area <= bestArea) {
+                        recycle(best)
+                        best = node; bestArea = area; keep = true
+                    }
+                    if (visited < p.maxNodes) {
+                        for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                if (!keep) recycle(node)
+            }
+        }
+        while (stack.isNotEmpty()) recycle(stack.removeLast())
+        val target = best ?: return false
+        return try {
+            if (target.isEditable) {
+                target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                true
+            } else target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } catch (_: Exception) {
+            false
+        } finally {
+            recycle(target)
+        }
+    }
+
     // ------------------------------------------------------------------
 
     fun toItem(node: AccessibilityNodeInfo): Item? {

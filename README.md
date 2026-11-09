@@ -17,14 +17,25 @@ text a tlačítka. Zbytečnosti (reklamy, menu, ikony, cookie lišty) přeskakuj
 | gesto | co udělá |
 |---|---|
 | klepnutí | přečte obrazovku; když zrovna čte, zastaví |
-| podržení | čte text (článek) od začátku obrazovky |
+| podržení | zapne/vypne **režim klepni a přečti** |
 | přetažení | přesune bublinu a přečte, co je pod ní |
 
-Když tchán klepne do pole a začne psát, appka sama řekne, o jaké pole jde
-(„Pole E-mail, prázdné“). Dá se to vypnout.
+Každé gesto jde v nastavení přepnout na jinou akci.
 
-Každé gesto jde v nastavení přepnout na jinou akci: přečíst obrazovku, jen
-formulář, číst text, přečíst, co je pod bublinou, nebo nic.
+## Co je navíc oproti vestavěné čtečce
+
+- **Ukáže, co čte.** Čtené místo se orámuje tlustým žlutým rámečkem a text
+  se ukáže obřím písmem dole nebo nahoře (tam, kde nepřekáží). Klepnutím
+  na velký text se čtení zastaví.
+- **Režim klepni a přečti.** Co ťukneš, to se přečte, ale nic se nespustí.
+  Tažením prstu čte, co je pod ním. Dvojím ťuknutím se prvek stiskne.
+  Nahoře jsou velká tlačítka ▲ ▼ (posun), Čti (čtení textu) a Konec.
+  Telefon se jinak ovládá úplně normálně, ne jako s TalkBackem.
+- **Hlásí, co se změnilo.** Po klepnutí v aplikaci chvíli sleduje
+  obrazovku a řekne: „Nová stránka …“, „Pozor: Heslo je nesprávné“,
+  „Vyskočilo okno …“ nebo přečte krátké hlášení dole na obrazovce.
+- **Formulář na jedno klepnutí.** „Formulář, 3 pole, vyplněno 1, prázdné:
+  Telefon, E-mail.“ Při klepnutí do pole řekne, co se do něj píše.
 
 ## Instalace do telefonu
 

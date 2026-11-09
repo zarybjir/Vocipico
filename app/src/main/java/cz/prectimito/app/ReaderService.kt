@@ -3,6 +3,7 @@ package cz.prectimito.app
 import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.Notification
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -18,16 +19,18 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
 /**
- * Služba přístupnosti: čte obsah jiných aplikací a ukazuje plovoucí bublinu.
- * Veškeré procházení obrazovky běží ve vlastním vlákně, aby se nic nezasekávalo.
+ * Služba přístupnosti: čte obsah jiných aplikací, ukazuje plovoucí bublinu,
+ * zvýrazňuje čtené místo, hlásí změny na obrazovce a nabízí režim
+ * „klepni a přečti“. Procházení obrazovky běží ve vlastním vlákně.
  */
-class ReaderService : AccessibilityService(), BubbleView.Listener,
+class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.ExploreListener,
     SharedPreferences.OnSharedPreferenceChangeListener {
 
     private lateinit var prefs: Prefs
     private lateinit var scanner: ScreenScanner
     private lateinit var phrases: Phrases
     private lateinit var speaker: Speaker
+    private lateinit var overlays: Overlays
     private lateinit var workerThread: HandlerThread
     private lateinit var worker: Handler
     private val main = Handler(Looper.getMainLooper())
@@ -46,15 +49,27 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
     private val spoken = HashSet<String>()
     private var pages = 0
 
+    // Hlášení změn
+    @Volatile private var changeGen = 0
+    private var baseline: Snapshot? = null
+
+    // Režim klepni a přečti
+    @Volatile private var lastHoverLabel = ""
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         prefs = Prefs(this)
         scanner = ScreenScanner(prefs)
         phrases = Phrases(prefs)
-        speaker = Speaker(this, prefs) { on -> main.post { bubble?.speaking = on } }
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        overlays = Overlays(this, wm!!, prefs)
+        speaker = Speaker(
+            this, prefs,
+            onSpeakingChanged = { on -> main.post { bubble?.speaking = on } },
+            onSegment = { seg -> main.post { overlays.show(seg) { stopReading() } } },
+        )
         workerThread = HandlerThread("ctecka").also { it.start() }
         worker = Handler(workerThread.looper)
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
         prefs.sp.registerOnSharedPreferenceChangeListener(this)
         applyServiceInfo()
         updateBubble()
@@ -65,6 +80,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         instance = null
         try { prefs.sp.unregisterOnSharedPreferenceChangeListener(this) } catch (_: Exception) {}
         removeBubble()
+        if (::overlays.isInitialized) overlays.removeAll()
         if (::speaker.isInitialized) speaker.shutdown()
         if (::workerThread.isInitialized) workerThread.quitSafely()
         super.onDestroy()
@@ -78,7 +94,8 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         if (key == "bubble_x" || key == "bubble_y") return
         speaker.applySettings()
         applyServiceInfo()
-        updateBubble()
+        main.post { overlays.refreshStyle() }
+        if (!overlays.exploring) updateBubble()
     }
 
     // ------------------------------------------------------------------
@@ -88,12 +105,17 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         val info = serviceInfo ?: AccessibilityServiceInfo()
         var events = 0
         if (prefs.announceFocusedField) events = events or AccessibilityEvent.TYPE_VIEW_FOCUSED
-        if (prefs.announceClicked) events = events or AccessibilityEvent.TYPE_VIEW_CLICKED
-        if (prefs.announceAppChange || prefs.stopOnAppChange) events = events or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        if (prefs.announceClicked || prefs.chPage || prefs.chErrors || prefs.chOther) {
+            events = events or AccessibilityEvent.TYPE_VIEW_CLICKED
+        }
+        if (prefs.announceAppChange || prefs.stopOnAppChange || prefs.chDialogs) {
+            events = events or AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+        }
+        if (prefs.chToasts) events = events or AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
         if (events == 0) events = AccessibilityEvent.TYPE_ANNOUNCEMENT // skoro nikdy nechodí
         info.eventTypes = events
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_SPOKEN
-        info.notificationTimeout = 150
+        info.notificationTimeout = 100
         var flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
             AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         if (prefs.thorough) flags = flags or AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
@@ -139,7 +161,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
 
     private fun updateBubble() {
         main.post {
-            if (!prefs.showBubble) { removeBubble(); return@post }
+            if (!prefs.showBubble || overlays.exploring) { removeBubble(); return@post }
             val size = bubbleSizePx()
             val existing = bubble
             if (existing != null) {
@@ -163,6 +185,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
             clamp(p)
             val v = BubbleView(this, this)
             v.alpha = prefs.bubbleOpacity / 100f
+            v.speaking = speaker.speaking
             try {
                 wm?.addView(v, p)
                 bubble = v; lp = p
@@ -227,11 +250,13 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
             Prefs.A_FORM -> readScreen { items, _ -> phrases.formOnly(items) }
             Prefs.A_TEXT -> readText()
             Prefs.A_UNDER -> readUnderBubble(quiet = false)
+            Prefs.A_EXPLORE -> main.post { if (overlays.exploring) onExploreExit() else startExplore() }
         }
     }
 
     fun stopReading() {
         generation++
+        changeGen++
         worker.removeCallbacksAndMessages(null)
         speaker.stop()
     }
@@ -243,8 +268,9 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
 
     fun hasCzechVoice() = speaker.hasLanguage()
 
-    private fun readScreen(build: (List<Item>, String) -> List<String>) {
+    private fun readScreen(build: (List<Item>, String) -> List<Seg>) {
         val gen = ++generation
+        changeGen++
         speaker.stop()
         worker.removeCallbacksAndMessages(null)
         worker.post {
@@ -253,29 +279,37 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
             val app = appName(root.packageName?.toString())
             val items = scanner.scan(root)
             if (gen != generation) return@post
-            speaker.speak(build(items, app))
+            speaker.speakSegs(build(items, app))
         }
     }
 
     private fun readUnderBubble(quiet: Boolean) {
         val p = lp ?: return
-        val cx = p.x + p.width / 2
-        val cy = p.y + p.height / 2
+        readAt(p.x + p.width / 2, p.y + p.height / 2, quiet)
+    }
+
+    private fun readAt(x: Int, y: Int, quiet: Boolean, onlyIfNew: Boolean = false) {
         val gen = ++generation
+        changeGen++
         if (!quiet) speaker.stop()
         worker.removeCallbacksAndMessages(null)
         worker.post {
             val root = appRoot() ?: return@post
-            val item = scanner.itemAt(root, cx, cy)
+            val item = scanner.itemAt(root, x, y)
             if (gen != generation) return@post
-            if (item != null) speaker.say(phrases.describe(item))
-            else if (!quiet) speaker.say("Tady nic není.")
+            if (item != null) {
+                val s = phrases.seg(item)
+                if (onlyIfNew && s.text == lastHoverLabel) return@post
+                lastHoverLabel = s.text
+                speaker.speakSegs(listOf(s))
+            } else if (!quiet) speaker.say("Tady nic není.")
         }
     }
 
     /** Souvislé čtení textu; volitelně posouvá stránku a čte dál. */
     private fun readText() {
         val gen = ++generation
+        changeGen++
         speaker.stop()
         worker.removeCallbacksAndMessages(null)
         spoken.clear()
@@ -288,7 +322,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         val root = appRoot()
         if (root == null) { speaker.say("Obrazovku teď nejde přečíst."); return }
         val items = scanner.scan(root)
-        val parts = phrases.bodyText(items).filter { spoken.add(it) }
+        val parts = phrases.bodyText(items).filter { spoken.add(it.text) }
         if (gen != generation) return
         if (parts.isEmpty()) {
             speaker.say(if (first) "Na obrazovce není žádný text." else "Konec stránky.")
@@ -297,18 +331,23 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         speaker.onQueueDone = if (prefs.autoScroll && pages < 40) {
             { worker.post { scrollAndContinue(gen) } }
         } else null
-        speaker.speak(parts)
+        speaker.speakSegs(parts)
     }
 
     private fun scrollAndContinue(gen: Int) {
         if (gen != generation) return
         pages++
-        val root = appRoot() ?: return
-        val target = biggestScrollable(root)
-        val ok = target?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true
-        ScreenScanner.recycle(target)
-        if (!ok) { speaker.say("Konec stránky."); return }
+        if (!scroll(true)) { speaker.say("Konec stránky."); return }
         worker.postDelayed({ readTextPage(gen, first = false) }, 700)
+    }
+
+    private fun scroll(forward: Boolean): Boolean {
+        val root = appRoot() ?: return false
+        val target = biggestScrollable(root)
+        val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        val ok = target?.performAction(action) == true
+        ScreenScanner.recycle(target)
+        return ok
     }
 
     private fun biggestScrollable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -341,6 +380,135 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         }
         while (stack.isNotEmpty()) ScreenScanner.recycle(stack.removeLast())
         return best
+    }
+
+    // ------------------------------------------------------------------
+    // Režim „klepni a přečti“
+
+    private fun startExplore() {
+        stopReading()
+        removeBubble()
+        overlays.startExplore(this)
+        lastHoverLabel = ""
+        speaker.say(
+            "Režim čtení. Klepni na cokoli a přečtu to." +
+                (if (prefs.exploreDoubleClick) " Dvojím klepnutím to stiskneš." else "") +
+                " Nahoře jsou tlačítka pro posun a konec."
+        )
+    }
+
+    override fun onExploreTap(x: Int, y: Int) = readAt(x, y, quiet = false)
+
+    override fun onExploreHover(x: Int, y: Int) = readAt(x, y, quiet = true, onlyIfNew = true)
+
+    override fun onExploreDoubleTap(x: Int, y: Int) {
+        if (!prefs.exploreDoubleClick) { readAt(x, y, quiet = false); return }
+        generation++
+        speaker.stop()
+        worker.removeCallbacksAndMessages(null)
+        worker.post {
+            val ok = scanner.clickAt(appRoot(), x, y)
+            if (!ok) speaker.say("Tady nejde nic stisknout.")
+        }
+    }
+
+    override fun onExploreScroll(forward: Boolean) {
+        stopReading()
+        worker.post {
+            if (!scroll(forward)) speaker.say(if (forward) "Níž už to nejde." else "Výš už to nejde.")
+        }
+    }
+
+    override fun onExploreReadText() = readText()
+
+    override fun onExploreExit() {
+        stopReading()
+        overlays.stopExplore()
+        updateBubble()
+        speaker.say("Konec režimu čtení.")
+    }
+
+    // ------------------------------------------------------------------
+    // Hlášení změn po klepnutí: nová stránka, chybové hlášky, nové věci.
+
+    private class Snapshot(val address: String, val keys: Set<String>, val items: List<Item>)
+
+    private fun snapshot(): Snapshot? {
+        val root = appRoot() ?: return null
+        val items = scanner.scan(root)
+        val address = items.firstOrNull { it.kind == Item.Kind.ADDRESS }?.label.orEmpty()
+        val keys = HashSet<String>()
+        for (it in items) if (it.kind != Item.Kind.ADDRESS) keys.add(it.kind.name + "|" + it.label)
+        return Snapshot(address, keys, items)
+    }
+
+    private fun watchChanges() {
+        val g = ++changeGen
+        worker.post {
+            if (g != changeGen) return@post
+            baseline = snapshot()
+            worker.postDelayed({ checkChanges(g) }, 1000)
+            worker.postDelayed({ checkChanges(g) }, 2600)
+        }
+    }
+
+    private fun checkChanges(g: Int) {
+        if (g != changeGen) return
+        val base = baseline ?: return
+        val now = snapshot() ?: return
+        if (g != changeGen) return
+        val out = ArrayList<Seg>()
+
+        val newItems = now.items.filter { it.kind != Item.Kind.ADDRESS && (it.kind.name + "|" + it.label) !in base.keys }
+        val overlap = if (now.keys.isEmpty()) 1.0 else (now.keys.count { it in base.keys }.toDouble() / now.keys.size)
+        val pageChanged = (now.address.isNotEmpty() && now.address != base.address) ||
+            (now.keys.size >= 5 && overlap < 0.3)
+
+        if (pageChanged && prefs.chPage) {
+            val head = now.items.firstOrNull { it.kind == Item.Kind.HEADING }
+                ?: now.items.firstOrNull { it.kind == Item.Kind.TEXT }
+            val where = if (now.address.isNotEmpty() && now.address != base.address)
+                "Nová stránka ${Phrases.spellDomain(now.address)}." else "Nová obrazovka."
+            out.add(Seg(where))
+            if (head != null) out.add(Seg(Phrases.clip(phrases.describe(head), 160), head.bounds))
+            val form = now.items.filter { it.isFormPart }
+            if (form.isNotEmpty()) out.add(Seg("Je tu formulář, ${Phrases.count(form.size, "pole", "pole", "polí")}.", Phrases.union(form)))
+        } else {
+            if (prefs.chErrors) {
+                newItems.filter { it.kind == Item.Kind.TEXT && isError(it.label) }.take(2).forEach {
+                    out.add(Seg("Pozor: " + Phrases.sentence(Phrases.clip(it.label, 200)), it.bounds))
+                }
+            }
+            if (prefs.chOther && out.isEmpty() && newItems.isNotEmpty()) {
+                out.add(Seg("Nově na obrazovce:"))
+                newItems.take(3).forEach { out.add(phrases.seg(it)) }
+            }
+        }
+        if (out.isNotEmpty()) {
+            baseline = now
+            if (g != changeGen) return
+            speaker.speakSegs(out, queue = speaker.speaking)
+        }
+    }
+
+    private fun isError(t: String): Boolean {
+        if (t.length > 300) return false
+        val l = t.lowercase()
+        return ERROR_WORDS.any { it in l }
+    }
+
+    private fun announceDialog() {
+        val g = ++changeGen
+        worker.postDelayed({
+            if (g != changeGen) return@postDelayed
+            val root = appRoot() ?: return@postDelayed
+            val items = scanner.scan(root)
+            if (g != changeGen || items.isEmpty()) return@postDelayed
+            val segs = ArrayList<Seg>()
+            segs.add(Seg("Vyskočilo okno."))
+            segs.addAll(phrases.summary(items, "", intro = false))
+            speaker.speakSegs(segs)
+        }, 400)
     }
 
     // ------------------------------------------------------------------
@@ -380,6 +548,10 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
         if (pkg == packageName) return
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                val cls = event.className?.toString().orEmpty()
+                if (prefs.chDialogs && cls.contains("Dialog") && !overlays.exploring) {
+                    announceDialog()
+                }
                 if (pkg.isEmpty() || pkg == lastPackage || pkg == "com.android.systemui" ||
                     pkg.contains("inputmethod") || pkg.contains("keyboard")
                 ) return
@@ -395,29 +567,45 @@ class ReaderService : AccessibilityService(), BubbleView.Listener,
                 val src = event.source ?: return
                 try {
                     if (src.isEditable) {
-                        scanner.toItem(src)?.let { speakNow(phrases.describe(it, true)) }
+                        scanner.toItem(src)?.let { speakNow(phrases.seg(it, true)) }
                     }
                 } finally { ScreenScanner.recycle(src) }
             }
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                if (!prefs.announceClicked) return
-                val src = event.source ?: return
-                try {
-                    scanner.toItem(src)?.let { speakNow(phrases.describe(it)) }
-                } finally { ScreenScanner.recycle(src) }
+                if (prefs.announceClicked) {
+                    val src = event.source
+                    if (src != null) {
+                        try {
+                            scanner.toItem(src)?.let { speakNow(phrases.seg(it)) }
+                        } finally { ScreenScanner.recycle(src) }
+                    }
+                }
+                if (prefs.chPage || prefs.chErrors || prefs.chOther) watchChanges()
+            }
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> {
+                if (!prefs.chToasts) return
+                if (event.parcelableData is Notification) return // oznámení v liště nečteme
+                val text = event.text.joinToString(" ") { it.toString() }.trim()
+                if (text.isNotEmpty()) speaker.say("Hlášení: " + Phrases.sentence(text), queue = speaker.speaking)
             }
         }
     }
 
-    private fun speakNow(text: String) {
+    private fun speakNow(seg: Seg) {
         generation++
         worker.removeCallbacksAndMessages(null)
         speaker.stop()
-        speaker.say(text)
+        speaker.speakSegs(listOf(seg))
     }
 
     companion object {
         @Volatile var instance: ReaderService? = null
             private set
+
+        private val ERROR_WORDS = listOf(
+            "chyba", "chybn", "neplatn", "nesprávn", "špatn", "povinn", "musíte", "nepodařilo",
+            "zkuste to znovu", "zkuste znovu", "nelze", "selhal", "vyplňte", "zadejte platn",
+            "error", "invalid", "required", "incorrect", "failed", "try again",
+        )
     }
 }

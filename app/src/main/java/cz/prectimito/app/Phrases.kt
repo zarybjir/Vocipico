@@ -1,5 +1,7 @@
 package cz.prectimito.app
 
+import android.graphics.Rect
+
 /** Z nalezených prvků poskládá věty v češtině podle nastavení. */
 class Phrases(private val p: Prefs) {
 
@@ -19,6 +21,8 @@ class Phrases(private val p: Prefs) {
         }
     }
 
+    fun seg(it: Item, withKind: Boolean = p.sayKind) = Seg(describe(it, withKind), it.bounds)
+
     private fun field(it: Item, k: Boolean): String {
         val name = it.label.ifEmpty { "bez popisku" }
         val state = when {
@@ -36,16 +40,34 @@ class Phrases(private val p: Prefs) {
         return "Nabídka, $n položek."
     }
 
+    /** „Formulář, 3 pole, vyplněno 1, prázdné: Telefon.“ */
+    private fun formIntro(form: List<Item>): String {
+        val fields = form.filter { it.kind == Item.Kind.FIELD }
+        val sb = StringBuilder("Formulář, ").append(count(form.size, "pole", "pole", "polí"))
+        if (fields.isNotEmpty()) {
+            val filled = fields.count { it.value.isNotEmpty() }
+            val empty = fields.filter { it.value.isEmpty() }.map { it.label.ifEmpty { "bez popisku" } }
+            sb.append(", vyplněno ").append(filled)
+            if (empty.isNotEmpty() && empty.size <= 4 && filled > 0) {
+                sb.append(", prázdné: ").append(empty.joinToString(", "))
+            }
+        }
+        return sb.append('.').toString()
+    }
+
     /** Souhrn obrazovky — podle skupin, nebo v pořadí na obrazovce. */
-    fun summary(items: List<Item>, appName: String): List<String> {
-        val out = ArrayList<String>()
+    fun summary(items: List<Item>, appName: String, intro: Boolean = true): List<Seg> {
+        val out = ArrayList<Seg>()
         val address = items.firstOrNull { it.kind == Item.Kind.ADDRESS }
-        if (p.readPageAddress && address != null) out.add(describe(address))
-        else if (p.readAppName && appName.isNotEmpty()) out.add("$appName.")
+        if (intro) {
+            if (p.readPageAddress && address != null) out.add(seg(address))
+            else if (p.readAppName && appName.isNotEmpty()) out.add(Seg("$appName."))
+        }
+        val headerCount = out.size
 
         val content = items.filter { it.kind != Item.Kind.ADDRESS }
         if (content.isEmpty()) {
-            out.add("Na obrazovce jsem nic ke čtení nenašel.")
+            out.add(Seg("Na obrazovce jsem nic ke čtení nenašel."))
             return out
         }
 
@@ -57,68 +79,61 @@ class Phrases(private val p: Prefs) {
                     if (textBudget <= 0) continue
                     val s = clip(it.label, textBudget)
                     textBudget -= s.length
-                    out.add(sentence(s))
-                } else out.add(describe(it))
+                    out.add(Seg(sentence(s), it.bounds))
+                } else out.add(seg(it))
             }
-            return out
-        }
-
-        // --- Podle skupin ---
-        if (p.readHeadings) {
-            content.filter { it.kind == Item.Kind.HEADING }.take(p.maxHeadings).forEach { out.add(describe(it)) }
-        }
-        if (p.readFields) {
-            val form = content.filter { it.isFormPart }
-            if (form.size >= 2 && p.sayKind) out.add("Formulář, ${count(form.size, "pole", "pole", "polí")}.")
-            form.forEach { out.add(describe(it)) }
-        }
-        if (p.readText) {
-            val text = StringBuilder()
-            for (it in content) {
-                if (it.kind != Item.Kind.TEXT) continue
-                if (text.length >= p.maxTextChars) break
-                if (text.isNotEmpty()) text.append(' ')
-                text.append(sentence(it.label))
+        } else {
+            if (p.readHeadings) {
+                content.filter { it.kind == Item.Kind.HEADING }.take(p.maxHeadings).forEach { out.add(seg(it)) }
             }
-            if (text.isNotEmpty()) out.add(clip(text.toString(), p.maxTextChars))
-        }
-        if (p.readImages) {
-            content.filter { it.kind == Item.Kind.IMAGE }.take(5).forEach { out.add(describe(it)) }
-        }
-        if (p.readButtons) {
-            val b = content.filter { it.kind == Item.Kind.BUTTON }.take(p.maxButtons)
-            if (b.isNotEmpty()) {
-                out.add((if (p.sayKind) "Tlačítka: " else "") + b.joinToString(", ") { it.label } + ".")
+            if (p.readFields) {
+                val form = content.filter { it.isFormPart }
+                if (form.size >= 2 && p.sayKind) out.add(Seg(formIntro(form), union(form)))
+                form.forEach { out.add(seg(it)) }
             }
-        }
-        if (p.readLinks) {
-            val l = content.filter { it.kind == Item.Kind.LINK }.take(p.maxLinks)
-            if (l.isNotEmpty()) {
-                out.add(l.joinToString(" ") { describe(it) })
+            if (p.readText) {
+                var budget = p.maxTextChars
+                for (it in content) {
+                    if (it.kind != Item.Kind.TEXT) continue
+                    if (budget <= 0) break
+                    val s = clip(it.label, budget)
+                    budget -= s.length
+                    out.add(Seg(sentence(s), it.bounds))
+                }
+            }
+            if (p.readImages) {
+                content.filter { it.kind == Item.Kind.IMAGE }.take(5).forEach { out.add(seg(it)) }
+            }
+            if (p.readButtons) {
+                val b = content.filter { it.kind == Item.Kind.BUTTON }.take(p.maxButtons)
+                if (b.isNotEmpty()) {
+                    out.add(Seg((if (p.sayKind) "Tlačítka: " else "") + b.joinToString(", ") { it.label } + ".", union(b)))
+                }
+            }
+            if (p.readLinks) {
+                content.filter { it.kind == Item.Kind.LINK }.take(p.maxLinks).forEach { out.add(seg(it)) }
             }
         }
-        if (out.isEmpty() || (out.size == 1 && (address != null || appName.isNotEmpty()))) {
-            out.add("Nic z toho, co mám číst, tu není.")
-        }
+        if (out.size == headerCount) out.add(Seg("Nic z toho, co mám číst, tu není."))
         return out
     }
 
     /** Jen formulář: pole, zaškrtávátka a tlačítka. */
-    fun formOnly(items: List<Item>): List<String> {
+    fun formOnly(items: List<Item>): List<Seg> {
         val form = items.filter { it.isFormPart }
-        if (form.isEmpty()) return listOf("Na obrazovce není žádný formulář.")
-        val out = ArrayList<String>()
-        out.add("Formulář, ${count(form.size, "pole", "pole", "polí")}.")
-        form.forEach { out.add(describe(it, true)) }
+        if (form.isEmpty()) return listOf(Seg("Na obrazovce není žádný formulář."))
+        val out = ArrayList<Seg>()
+        out.add(Seg(formIntro(form), union(form)))
+        form.forEach { out.add(seg(it, true)) }
         val b = items.filter { it.kind == Item.Kind.BUTTON }.take(p.maxButtons)
-        if (b.isNotEmpty()) out.add("Tlačítka: " + b.joinToString(", ") { it.label } + ".")
+        if (b.isNotEmpty()) out.add(Seg("Tlačítka: " + b.joinToString(", ") { it.label } + ".", union(b)))
         return out
     }
 
     /** Souvislý text (čtení článku). */
-    fun bodyText(items: List<Item>): List<String> =
+    fun bodyText(items: List<Item>): List<Seg> =
         items.filter { it.kind == Item.Kind.TEXT || it.kind == Item.Kind.HEADING }
-            .map { if (it.kind == Item.Kind.HEADING) "${it.label}." else sentence(it.label) }
+            .map { Seg(if (it.kind == Item.Kind.HEADING) "${it.label}." else sentence(it.label), it.bounds) }
 
     private fun wanted(it: Item) = when (it.kind) {
         Item.Kind.HEADING -> p.readHeadings
@@ -131,6 +146,13 @@ class Phrases(private val p: Prefs) {
     }
 
     companion object {
+        fun union(items: List<Item>): Rect? {
+            if (items.isEmpty()) return null
+            val r = Rect(items[0].bounds)
+            for (i in 1 until items.size) r.union(items[i].bounds)
+            return r
+        }
+
         fun sentence(s: String): String {
             val t = s.trim()
             if (t.isEmpty()) return t
@@ -140,7 +162,6 @@ class Phrases(private val p: Prefs) {
 
         fun clip(s: String, max: Int): String {
             if (s.length <= max) return s
-            // Utnout na konci věty nebo aspoň slova.
             val cut = s.substring(0, max)
             val dot = maxOf(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "))
             if (dot > max / 2) return cut.substring(0, dot + 1)

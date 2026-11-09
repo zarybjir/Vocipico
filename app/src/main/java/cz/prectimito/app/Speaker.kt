@@ -1,17 +1,31 @@
 package cz.prectimito.app
 
 import android.content.Context
+import android.graphics.Rect
 import android.media.AudioAttributes
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+
+/** Kousek řeči: co říct a (volitelně) kde to na obrazovce je, aby šlo zvýraznit. */
+class Seg(val text: String, val rect: Rect? = null)
 
 /**
  * Obal kolem hlasu telefonu (offline Google TTS). Jedna instance po celou dobu
  * běhu služby — start hlasu je na starém telefonu to nejpomalejší.
+ *
+ * Každá věta je samostatná promluva, takže víme, co se právě čte, a můžeme
+ * to zvýraznit a ukázat velkým písmem.
  */
-class Speaker(context: Context, private val p: Prefs, private val onSpeakingChanged: (Boolean) -> Unit) {
+class Speaker(
+    context: Context,
+    private val p: Prefs,
+    private val onSpeakingChanged: (Boolean) -> Unit,
+    /** Začala se číst tahle část (null = dočteno / zastaveno). */
+    private val onSegment: (Seg?) -> Unit,
+) {
 
     @Volatile var ready = false
         private set
@@ -23,7 +37,8 @@ class Speaker(context: Context, private val p: Prefs, private val onSpeakingChan
 
     @Volatile private var lastId = ""
     private var counter = 0
-    private val pending = ArrayList<String>()
+    private val pending = ArrayList<Seg>()
+    private val segs = ConcurrentHashMap<String, Seg>()
     private val tts: TextToSpeech
 
     init {
@@ -31,29 +46,31 @@ class Speaker(context: Context, private val p: Prefs, private val onSpeakingChan
             ready = status == TextToSpeech.SUCCESS
             if (ready) {
                 applySettings()
-                synchronized(pending) {
-                    if (pending.isNotEmpty()) {
-                        val copy = ArrayList(pending); pending.clear()
-                        speak(copy)
-                    }
-                }
+                val copy: List<Seg>
+                synchronized(pending) { copy = ArrayList(pending); pending.clear() }
+                if (copy.isNotEmpty()) speakSegs(copy)
             }
         }
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
                 if (!speaking) { speaking = true; onSpeakingChanged(true) }
+                val s = utteranceId?.let { segs[it] }
+                if (s != null) onSegment(s)
             }
             override fun onDone(utteranceId: String?) {
+                if (utteranceId != null) segs.remove(utteranceId)
                 if (utteranceId == lastId) {
                     speaking = false
                     onSpeakingChanged(false)
+                    onSegment(null)
                     onQueueDone?.invoke()
                 }
             }
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) { onDone(utteranceId) }
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
-                if (speaking) { speaking = false; onSpeakingChanged(false) }
+                if (utteranceId != null) segs.remove(utteranceId)
+                if (speaking) { speaking = false; onSpeakingChanged(false); onSegment(null) }
             }
         })
     }
@@ -82,63 +99,87 @@ class Speaker(context: Context, private val p: Prefs, private val onSpeakingChan
         return r >= TextToSpeech.LANG_AVAILABLE
     }
 
-    /** Přečte věty; [queue] = přidat za to, co se právě čte. */
-    fun speak(parts: List<String>, queue: Boolean = false) {
+    /** Přečte části; [queue] = přidat za to, co se právě čte. */
+    fun speakSegs(parts: List<Seg>, queue: Boolean = false) {
         if (!ready) {
             synchronized(pending) { if (!queue) pending.clear(); pending.addAll(parts) }
             return
         }
-        val chunks = split(parts)
-        if (chunks.isEmpty()) return
+        val pieces = split(parts)
+        if (pieces.isEmpty()) return
+        if (!queue) segs.clear()
         var mode = if (queue) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH
         val params = Bundle()
-        for ((i, c) in chunks.withIndex()) {
+        for ((i, piece) in pieces.withIndex()) {
             val id = "u${counter++}"
-            if (i == chunks.lastIndex) lastId = id
-            tts.speak(c, mode, params, id)
+            segs[id] = piece
+            if (i == pieces.lastIndex) lastId = id
+            tts.speak(piece.text, mode, params, id)
             mode = TextToSpeech.QUEUE_ADD
         }
     }
 
-    fun say(text: String) = speak(listOf(text))
+    fun speak(parts: List<String>, queue: Boolean = false) = speakSegs(parts.map { Seg(it) }, queue)
+
+    fun say(text: String, rect: Rect? = null, queue: Boolean = false) = speakSegs(listOf(Seg(text, rect)), queue)
 
     fun stop() {
         onQueueDone = null
         synchronized(pending) { pending.clear() }
+        segs.clear()
         if (ready) tts.stop()
         if (speaking) { speaking = false; onSpeakingChanged(false) }
+        onSegment(null)
     }
 
     fun shutdown() {
         try { tts.stop(); tts.shutdown() } catch (_: Exception) {}
     }
 
-    /** Hlas zvládne jen omezenou délku najednou — rozdělíme na kousky po větách. */
-    private fun split(parts: List<String>): List<String> {
-        val max = 800
-        val out = ArrayList<String>()
-        val cur = StringBuilder()
-        fun flush() { if (cur.isNotBlank()) out.add(cur.toString().trim()); cur.setLength(0) }
+    /**
+     * Dlouhé části rozdělí po větách (max. ~250 znaků), aby velký titulek
+     * ukazoval vždy jen to, co se právě čte.
+     */
+    private fun split(parts: List<Seg>): List<Seg> {
+        val max = 250
+        val out = ArrayList<Seg>()
         for (part in parts) {
-            if (part.isBlank()) continue
-            if (part.length > max) {
-                flush()
-                var rest = part
-                while (rest.length > max) {
-                    var cut = rest.lastIndexOf(". ", max)
-                    if (cut < max / 3) cut = rest.lastIndexOf(' ', max)
-                    if (cut <= 0) cut = max
-                    out.add(rest.substring(0, cut + 1).trim())
-                    rest = rest.substring(cut + 1)
+            val t = part.text.trim()
+            if (t.isEmpty()) continue
+            if (t.length <= max) { out.add(Seg(t, part.rect)); continue }
+            val cur = StringBuilder()
+            for (sentence in sentences(t)) {
+                if (cur.isNotEmpty() && cur.length + sentence.length + 1 > max) {
+                    out.add(Seg(cur.toString(), part.rect)); cur.setLength(0)
                 }
-                if (rest.isNotBlank()) cur.append(rest)
-            } else {
-                if (cur.length + part.length + 1 > max) flush()
+                var s = sentence
+                while (s.length > max) {
+                    var cut = s.lastIndexOf(' ', max)
+                    if (cut <= 0) cut = max
+                    out.add(Seg(s.substring(0, cut).trim(), part.rect))
+                    s = s.substring(cut).trim()
+                }
                 if (cur.isNotEmpty()) cur.append(' ')
-                cur.append(part)
+                cur.append(s)
             }
+            if (cur.isNotBlank()) out.add(Seg(cur.toString(), part.rect))
         }
-        flush()
         return out
+    }
+
+    private fun sentences(t: String): List<String> {
+        val res = ArrayList<String>()
+        var start = 0
+        var i = 0
+        while (i < t.length) {
+            val c = t[i]
+            if ((c == '.' || c == '!' || c == '?' || c == '…') && i + 1 < t.length && t[i + 1] == ' ') {
+                res.add(t.substring(start, i + 1).trim())
+                start = i + 1
+            }
+            i++
+        }
+        if (start < t.length) res.add(t.substring(start).trim())
+        return res.filter { it.isNotEmpty() }
     }
 }
