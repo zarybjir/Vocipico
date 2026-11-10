@@ -28,6 +28,7 @@ class Phrases(private val p: Prefs) {
         val state = when {
             it.isPassword -> if (it.value.isEmpty()) "prázdné" else "vyplněno"
             it.value.isEmpty() -> "prázdné"
+            p.hideSensitive && isSensitive(it) -> "vyplněno"
             p.readFieldValues -> "vyplněno: ${it.value}"
             else -> "vyplněno"
         }
@@ -146,6 +147,21 @@ class Phrases(private val p: Prefs) {
     }
 
     companion object {
+        private val SENSITIVE = listOf(
+            "hesl", "pin", "cvv", "cvc", "kód", "kod", "číslo karty", "cislo karty", "karty",
+            "password", "passwd", "passcode", "otp", "code", "card", "secret", "token", "iban",
+            "rodné", "rodne",
+        )
+
+        /** Pole, jehož obsah se nemá říkat nahlas ani ukazovat velkým písmem. */
+        fun isSensitive(it: Item): Boolean {
+            if (it.isPassword) return true
+            val l = (it.label + " " + it.fallback).lowercase()
+            if (SENSITIVE.any { w -> w in l }) return true
+            // Dlouhé číslo (karta, účet) i bez popisku.
+            return it.value.count { c -> c.isDigit() } >= 12 && it.value.all { c -> c.isDigit() || c == ' ' || c == '-' || c == '/' }
+        }
+
         fun union(items: List<Item>): Rect? {
             if (items.isEmpty()) return null
             val r = Rect(items[0].bounds)

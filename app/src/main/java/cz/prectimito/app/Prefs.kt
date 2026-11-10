@@ -44,6 +44,10 @@ class Prefs(context: Context) {
     // --- Bublina ---
     val showBubble get() = b(K_SHOW_BUBBLE)
     val bubbleDp get() = i(K_BUBBLE_DP)
+    val iconScale get() = i(K_ICON_SCALE)
+    val bubbleColor get() = s(K_BUBBLE_COLOR)
+    val barSize get() = i(K_BAR_SIZE)
+    val hideSensitive get() = b(K_HIDE_SENSITIVE)
     val bubbleOpacity get() = i(K_BUBBLE_OPACITY)
     val tapAction get() = s(K_TAP_ACTION)
     val longAction get() = s(K_LONG_ACTION)
@@ -127,6 +131,10 @@ class Prefs(context: Context) {
 
         const val K_SHOW_BUBBLE = "show_bubble"
         const val K_BUBBLE_DP = "bubble_dp"
+        const val K_ICON_SCALE = "icon_scale"
+        const val K_BUBBLE_COLOR = "bubble_color"
+        const val K_BAR_SIZE = "bar_size"
+        const val K_HIDE_SENSITIVE = "hide_sensitive"
         const val K_BUBBLE_OPACITY = "bubble_opacity"
         const val K_TAP_ACTION = "tap_action"
         const val K_LONG_ACTION = "long_action"
@@ -201,6 +209,7 @@ class Prefs(context: Context) {
             K_VIBRATE to true,
             K_AUTO_SCROLL to false,
             K_HIGHLIGHT to true,
+            K_HIDE_SENSITIVE to true,
             K_CAPTION to true,
             K_EXPLORE_DOUBLE to true,
             K_CH_DIALOGS to true,
@@ -218,6 +227,7 @@ class Prefs(context: Context) {
         val DEFAULT_STR = mapOf(
             K_ORDER to O_GROUPS,
             K_DOUBLE_ACTION to A_NEXT,
+            K_BUBBLE_COLOR to "amber",
             K_ENGINE to "",
             K_VOICE to "",
             K_TAP_ACTION to A_SUMMARY,
@@ -239,6 +249,8 @@ class Prefs(context: Context) {
             K_MAX_NODES to 500,
             K_CAPTION_SIZE to 34,
             K_BUBBLE_DP to 88,
+            K_ICON_SCALE to 100,
+            K_BAR_SIZE to 64,
         )
     }
 }

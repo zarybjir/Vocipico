@@ -65,6 +65,27 @@ Bublina se objeví hned po zapnutí služby.
 - **Text v obrázcích** appka nepřečte, protože na rozpoznávání textu
   z obrázků by potřebovala velkou knihovnu navíc. Jde to přidat později.
 
+## Bezpečnost
+
+Čtečka obrazovky vidí všechno, co je na displeji, takže je psaná opatrně:
+
+- **Nemá oprávnění k internetu.** Nic z obrazovky nemůže nikam odeslat.
+  Nic si neukládá ani nezapisuje do logu, jen vlastní nastavení.
+- **Hesla nečte nikdy.** S volbou „Neříkat citlivé údaje“ (výchozí) neřekne
+  ani PIN, kódy, čísla karet a účtů — jen „vyplněno“.
+- **Hlas bez internetu má přednost.** Hlas, který posílá text na servery,
+  se použije jen tehdy, když si ho v nastavení sám vybereš.
+- **Hlášení jiných aplikací** uvádí jménem aplikace, aby žádná nemohla
+  hlasem čtečky předstírat, že mluví telefon nebo banka.
+- **Při zhasnutí obrazovky** skončí režim klepni a přečti, aby na zamčeném
+  telefonu nezůstala vrstva chytající dotyky.
+- Zvenku jsou přístupné jen úvodní obrazovka a samotná služba, kterou smí
+  spustit pouze systém Android.
+
+Co appka ošetřit nemůže: kdo má odemčený telefon v ruce, může si nechat
+obrazovku přečíst stejně, jako se na ni může podívat. A hlasový modul
+(Google, výrobce) dostává čtený text — vybírej jen ten, kterému věříš.
+
 ## Sestavení
 
 Na GitHubu: každý push do `main` sestaví APK automaticky (záložka Actions).

@@ -31,6 +31,14 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
     /** Když je dvojklepnutí vypnuté, reaguje jedno klepnutí okamžitě (bez čekání). */
     var doubleTapEnabled = true
 
+    /** Velikost symbolu uvnitř bubliny v procentech. */
+    var iconScale = 100
+        set(v) { if (field != v) { field = v; invalidate() } }
+
+    /** Barevné provedení: amber, red, blue, white. */
+    var palette = "amber"
+        set(v) { if (field != v) { field = v; invalidate() } }
+
     var speaking = false
         set(v) { if (field != v) { field = v; invalidate() } }
 
@@ -74,11 +82,27 @@ class BubbleView(context: Context, private val listener: Listener) : View(contex
         val cx = w / 2f
         val cy = h / 2f
         ring.strokeWidth = r * 0.08f
-        fill.color = if (speaking) 0xFFC62828.toInt() else 0xFF0D47A1.toInt()
+        val black = 0xFF000000.toInt()
+        val white = 0xFFFFFFFF.toInt()
+        val red = 0xFFD50000.toInt()
+        val amber = 0xFFFFB300.toInt()
+        val fillColor: Int
+        val iconColor: Int
+        when (palette) {
+            "red" -> if (speaking) { fillColor = black; iconColor = amber } else { fillColor = red; iconColor = white }
+            "blue" -> if (speaking) { fillColor = red; iconColor = white } else { fillColor = 0xFF0D47A1.toInt(); iconColor = white }
+            "white" -> if (speaking) { fillColor = red; iconColor = white } else { fillColor = white; iconColor = black }
+            else -> if (speaking) { fillColor = red; iconColor = white } else { fillColor = amber; iconColor = black }
+        }
+        fill.color = fillColor
+        icon.color = iconColor
+        arc.color = iconColor
+        // Okraj vždy v opačném odstínu než výplň, ať je bublina vidět na čemkoli.
+        ring.color = if (fillColor == white || fillColor == amber) black else white
         canvas.drawCircle(cx, cy, r - ring.strokeWidth, fill)
         canvas.drawCircle(cx, cy, r - ring.strokeWidth, ring)
 
-        val s = r * 0.42f // velikost ikony
+        val s = r * 0.42f * iconScale.coerceIn(40, 160) / 100f // velikost symbolu
         if (speaking) {
             canvas.drawRect(cx - s * 0.7f, cy - s * 0.7f, cx + s * 0.7f, cy + s * 0.7f, icon)
         } else {

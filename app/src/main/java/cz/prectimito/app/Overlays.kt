@@ -145,11 +145,12 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
 
     val exploring get() = exploreLayer != null
 
-    fun startExplore(l: ExploreListener) {
-        if (exploreLayer != null) return
+    /** Vrátí false, když se režim nepodařilo zapnout (pak nezůstane nic viset). */
+    fun startExplore(l: ExploreListener): Boolean {
+        if (exploreLayer != null) return true
         val layer = ExploreLayer(ctx, l)
-        add(layer, fullScreen(touchable = true))
-        exploreLayer = layer
+        if (!add(layer, fullScreen(touchable = true))) return false
+        val h = p.barSize.coerceIn(40, 140)
 
         val bar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -161,13 +162,14 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
             b.text = label
             b.contentDescription = desc
             b.isAllCaps = false
-            b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+            b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, h * 0.4f)
             b.setTextColor(Color.BLACK)
+            b.setPadding(0, 0, 0, 0)
             b.background = GradientDrawable().apply {
-                setColor(Color.parseColor("#FFD54F")); cornerRadius = dp(10).toFloat()
+                setColor(Color.parseColor("#FFB300")); cornerRadius = dp(10).toFloat()
             }
             b.setOnClickListener { action() }
-            bar.addView(b, LinearLayout.LayoutParams(0, dp(64), weight).apply {
+            bar.addView(b, LinearLayout.LayoutParams(0, dp(h), weight).apply {
                 setMargins(dp(4), 0, dp(4), 0)
             })
         }
@@ -182,8 +184,11 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
             PixelFormat.TRANSLUCENT
         )
         lp.gravity = Gravity.TOP
-        add(bar, lp)
+        // Bez lišty s tlačítkem Konec nesmí vrstva přes celou obrazovku zůstat.
+        if (!add(bar, lp)) { remove(layer); return false }
+        exploreLayer = layer
         banner = bar
+        return true
     }
 
     fun stopExplore() {
@@ -218,9 +223,8 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
         return lp
     }
 
-    private fun add(v: View, lp: WindowManager.LayoutParams) {
-        try { wm.addView(v, lp) } catch (_: Exception) {}
-    }
+    private fun add(v: View, lp: WindowManager.LayoutParams): Boolean =
+        try { wm.addView(v, lp); true } catch (_: Exception) { false }
 
     private fun remove(v: View) {
         try { wm.removeView(v) } catch (_: Exception) {}

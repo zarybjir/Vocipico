@@ -311,7 +311,7 @@ class ScreenScanner(private val p: Prefs) {
                     val prev = items[i - 1]
                     if (prev.kind == Item.Kind.TEXT && prev.label.length <= 60) {
                         fixed.removeAt(fixed.size - 1)
-                        fixed.add(Item(it.kind, prev.label.trimEnd(':', '*', ' '), it.value, it.state, it.bounds, it.isPassword))
+                        fixed.add(Item(it.kind, prev.label.trimEnd(':', '*', ' '), it.value, it.state, it.bounds, it.isPassword, it.fallback))
                         continue
                     }
                 }
@@ -321,7 +321,7 @@ class ScreenScanner(private val p: Prefs) {
         }
         items = items.map {
             if (it.kind == Item.Kind.FIELD && it.label.isEmpty() && it.fallback.isNotEmpty())
-                Item(it.kind, it.fallback, it.value, it.state, it.bounds, it.isPassword)
+                Item(it.kind, it.fallback, it.value, it.state, it.bounds, it.isPassword, it.fallback)
             else it
         }
 

@@ -4,6 +4,10 @@ import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Notification
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -71,13 +75,30 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         workerThread = HandlerThread("ctecka").also { it.start() }
         worker = Handler(workerThread.looper)
         prefs.sp.registerOnSharedPreferenceChangeListener(this)
+        val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(screenOff, filter)
         applyServiceInfo()
         updateBubble()
         instance = this
     }
 
+    /**
+     * Při zhasnutí obrazovky skončí režim „klepni a přečti“: na zamčeném
+     * telefonu nesmí zůstat vrstva, která chytá všechny dotyky.
+     */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            if (overlays.exploring) {
+                overlays.stopExplore()
+                updateBubble()
+            }
+        }
+    }
+
     override fun onDestroy() {
         instance = null
+        try { unregisterReceiver(screenOff) } catch (_: Exception) {}
         try { prefs.sp.unregisterOnSharedPreferenceChangeListener(this) } catch (_: Exception) {}
         removeBubble()
         if (::overlays.isInitialized) overlays.removeAll()
@@ -161,6 +182,8 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
                 p.width = size; p.height = size
                 existing.alpha = prefs.bubbleOpacity / 100f
                 existing.doubleTapEnabled = prefs.doubleAction != Prefs.A_NONE
+                existing.iconScale = prefs.iconScale
+                existing.palette = prefs.bubbleColor
                 try { wm?.updateViewLayout(existing, p) } catch (_: Exception) {}
                 return@post
             }
@@ -180,6 +203,8 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             v.alpha = prefs.bubbleOpacity / 100f
             v.speaking = speaker.speaking
             v.doubleTapEnabled = prefs.doubleAction != Prefs.A_NONE
+            v.iconScale = prefs.iconScale
+            v.palette = prefs.bubbleColor
             try {
                 wm?.addView(v, p)
                 bubble = v; lp = p
@@ -455,7 +480,11 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     private fun startExplore() {
         stopReading()
         removeBubble()
-        overlays.startExplore(this)
+        if (!overlays.startExplore(this)) {
+            updateBubble()
+            speaker.say("Režim čtení se nepodařilo zapnout.")
+            return
+        }
         lastHoverLabel = ""
         speaker.say(
             "Režim čtení. Klepni na cokoli a přečtu to." +
@@ -653,7 +682,12 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
                 if (!prefs.chToasts) return
                 if (event.parcelableData is Notification) return // oznámení v liště nečteme
                 val text = event.text.joinToString(" ") { it.toString() }.trim()
-                if (text.isNotEmpty()) speaker.say("Hlášení: " + Phrases.sentence(text), queue = speaker.speaking)
+                if (text.isEmpty() || text.length > 300) return
+                // Vždy říct, čí hlášení to je — cizí aplikace tak nemůže hlasem
+                // čtečky předstírat, že mluví telefon nebo banka.
+                val from = appName(pkg)
+                val intro = if (from.isNotEmpty()) "Hlášení z aplikace $from: " else "Hlášení: "
+                speaker.say(intro + Phrases.sentence(text), queue = speaker.speaking)
             }
         }
     }

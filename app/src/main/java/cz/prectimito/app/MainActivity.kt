@@ -36,7 +36,9 @@ class MainActivity : Activity() {
     private lateinit var restrictedHelp: LinearLayout
     private lateinit var voiceWarn: LinearLayout
 
-    private val accent = Color.parseColor("#FFD54F")
+    // Vzhled: hospodský punk — černá, pivní jantar, červená „nálepka“.
+    private val accent = Color.parseColor("#FFB300")
+    private val red = Color.parseColor("#D50000")
     private val fg = Color.WHITE
     private val dim = Color.parseColor("#CFCFCF")
 
@@ -62,7 +64,7 @@ class MainActivity : Activity() {
     // ------------------------------------------------------------------
 
     private fun build() {
-        title("Přečti mi to", 30f)
+        header()
         status = text("", 22f, fg).apply { setTypeface(typeface, Typeface.BOLD) }
         enableBtn = button("Zapnout čtečku") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -97,7 +99,7 @@ class MainActivity : Activity() {
         button("Vyzkoušet hlas") {
             val s = ReaderService.instance
             if (s == null) toastSay("Nejdřív zapni čtečku.")
-            else s.testVoice("Dobrý den. Takhle budu číst. Tlačítko Odeslat. Pole Jméno, prázdné.")
+            else s.testVoice("Dobrý den. Takhle budu číst. Tlačítko Odeslat. Pole Jméno, prázdné. Na Kovárně, to je nářez!")
         }
         text(
             "Jak se ovládá bublina:\n" +
@@ -116,6 +118,7 @@ class MainActivity : Activity() {
         slider(Prefs.K_MAX_HEADINGS, "Kolik nadpisů nejvýš", 1, 10, 1) { "$it" }
         switch(Prefs.K_FIELDS, "Formuláře (pole, zaškrtávátka)")
         switch(Prefs.K_FIELD_VALUES, "Číst, co je v poli napsané", "Hesla se nečtou nikdy.")
+        switch(Prefs.K_HIDE_SENSITIVE, "Neříkat citlivé údaje", "PIN, kódy, čísla karet a účtů: řekne jen „vyplněno“. Nikdo je tak neuslyší ani nepřečte přes rameno.")
         switch(Prefs.K_TEXT, "Text na obrazovce")
         slider(Prefs.K_MAX_TEXT, "Kolik textu nejvýš", 100, 2000, 100) { "$it znaků" }
         switch(Prefs.K_BUTTONS, "Tlačítka")
@@ -143,6 +146,12 @@ class MainActivity : Activity() {
         section("Bublina")
         switch(Prefs.K_SHOW_BUBBLE, "Zobrazovat bublinu")
         slider(Prefs.K_BUBBLE_DP, "Velikost bubliny", 40, 160, 8) { "$it" }
+        slider(Prefs.K_ICON_SCALE, "Velikost symbolu v bublině", 50, 150, 10) { "$it %" }
+        text("Symbol reproduktoru (spustit čtení) a čtverečku (zastavit čtení).", 16f, dim)
+        choice(
+            Prefs.K_BUBBLE_COLOR, "Barva bubliny",
+            listOf("amber" to "Pivní jantar", "red" to "Červená", "blue" to "Modrá", "white" to "Bílá")
+        )
         slider(Prefs.K_BUBBLE_OPACITY, "Neprůhlednost", 30, 100, 10) { "$it %" }
         val actions = listOf(
             Prefs.A_SUMMARY to "Přečíst obrazovku",
@@ -177,6 +186,7 @@ class MainActivity : Activity() {
 
         section("Režim klepni a přečti")
         text("Zapíná se podržením bubliny. Co ťukneš, to se přečte, ale nic se nespustí. Tažením prstu čte, co je pod ním. Nahoře jsou tlačítka ▲ ▼ pro posun, Čti a Konec.", 18f, dim)
+        slider(Prefs.K_BAR_SIZE, "Velikost tlačítek ▲ ▼ Čti a Konec", 48, 128, 8) { "$it" }
         switch(Prefs.K_EXPLORE_DOUBLE, "Dvojí ťuknutí = stisknout", "Jinak se v režimu čtení nedá nic zmáčknout.")
 
         section("Hlásit, co se změnilo")
@@ -210,6 +220,7 @@ class MainActivity : Activity() {
         dynamicChoice(Prefs.K_ENGINE, "Hlasový modul", "Výchozí v telefonu") {
             ReaderService.instance?.engineOptions()
         }
+        text("Pozor: hlasový modul dostává všechno, co se čte. Vybírej jen moduly, kterým věříš (Google, výrobce telefonu).", 16f, dim)
         choice(
             Prefs.K_STREAM, "Hlasitost se řídí",
             listOf("media" to "Jako hudba a videa", "a11y" to "Hlasitostí přístupnosti")
@@ -287,13 +298,59 @@ class MainActivity : Activity() {
         return t
     }
 
-    private fun section(s: String) {
-        val line = View(this)
-        line.setBackgroundColor(Color.parseColor("#444444"))
-        parent().addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)).apply {
-            topMargin = dp(24); bottomMargin = dp(4)
+    /** Hlavička jako nakřivo nalepená samolepka. */
+    private fun header() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            background = GradientDrawable().apply {
+                setColor(red); setStroke(dp(4), Color.WHITE)
+            }
+            rotation = -2f
+        }
+        val big = TextView(this).apply {
+            text = "PŘEČTI MI TO!"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
+            letterSpacing = 0.04f
+        }
+        val small = TextView(this).apply {
+            text = "čtečka, co se s tím nemaže"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTextColor(Color.BLACK)
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            setBackgroundColor(accent)
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+        }
+        box.addView(big)
+        box.addView(small, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        parent().addView(box, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10); bottomMargin = dp(20); leftMargin = dp(4); rightMargin = dp(4)
         })
-        if (s.isNotEmpty()) title(s, 24f)
+    }
+
+    /** Nadpis sekce: bílý text na červené nálepce, pod ní jantarová linka. */
+    private fun section(s: String) {
+        if (s.isNotEmpty()) {
+            val t = TextView(this).apply {
+                text = s.uppercase()
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+                setTextColor(Color.WHITE)
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
+                setBackgroundColor(red)
+                setPadding(dp(12), dp(6), dp(14), dp(6))
+                rotation = -1f
+            }
+            parent().addView(t, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(30)
+            })
+        }
+        val line = View(this)
+        line.setBackgroundColor(accent)
+        parent().addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply {
+            topMargin = if (s.isEmpty()) dp(28) else dp(2); bottomMargin = dp(6)
+        })
     }
 
     private fun button(label: String, onClick: () -> Unit): Button {
@@ -302,8 +359,9 @@ class MainActivity : Activity() {
         b.isAllCaps = false
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
         b.setTextColor(Color.BLACK)
+        b.typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         b.background = GradientDrawable().apply {
-            setColor(accent); cornerRadius = dp(12).toFloat()
+            setColor(accent); cornerRadius = dp(6).toFloat(); setStroke(dp(3), Color.WHITE)
         }
         b.minHeight = dp(60)
         b.setOnClickListener { onClick() }

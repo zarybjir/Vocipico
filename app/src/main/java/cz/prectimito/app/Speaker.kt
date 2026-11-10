@@ -112,7 +112,7 @@ class Speaker(
                 !it.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
         }.sortedWith(compareBy({ it.isNetworkConnectionRequired }, { it.name }))
         return usable.mapIndexed { i, v ->
-            val where = if (v.isNetworkConnectionRequired) "potřebuje internet, pomalejší" else "v telefonu, rychlý"
+            val where = if (v.isNetworkConnectionRequired) "posílá čtený text na internet" else "v telefonu, rychlý"
             v.name to "Hlas ${i + 1} ($where)"
         }
     }
@@ -128,9 +128,19 @@ class Speaker(
         tts.language = locale()
         // Konkrétní hlas (nastavuje se až po jazyku, ten hlas přepíše).
         val wanted = p.voice
-        if (wanted.isNotEmpty()) {
-            try { tts.voices?.firstOrNull { it.name == wanted }?.let { tts.voice = it } } catch (_: Exception) {}
-        }
+        try {
+            if (wanted.isNotEmpty()) {
+                tts.voices?.firstOrNull { it.name == wanted }?.let { tts.voice = it }
+            } else if (tts.voice?.isNetworkConnectionRequired == true) {
+                // Soukromí: bez výslovné volby nikdy nepoužít hlas, který posílá
+                // čtený text na internet, pokud je v telefonu i hlas bez internetu.
+                val lang = locale().language
+                tts.voices?.firstOrNull {
+                    it.locale.language == lang && !it.isNetworkConnectionRequired &&
+                        !it.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
+                }?.let { tts.voice = it }
+            }
+        } catch (_: Exception) {}
         val usage = if (p.audioStream == "a11y") AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY
         else AudioAttributes.USAGE_MEDIA
         tts.setAudioAttributes(
