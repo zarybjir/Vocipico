@@ -96,7 +96,13 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             visited++
             try {
                 node.getBoundsInScreen(r)
-                if (r.contains(x, y) && node.isVisibleToUser) {
+                if (!node.isVisibleToUser) {
+                    // Průchozí obal (Chrome: celá stránka pod prvkem s nulovou výškou).
+                    if (visited < maxNodes) {
+                        val kids = children(node, true)
+                        for (i in kids.indices.reversed()) stack.addLast(kids[i])
+                    }
+                } else if (r.contains(x, y)) {
                     val area = r.width().toLong() * r.height()
                     val item = toItem(node)
                     if (item != null && area <= bestArea) {
@@ -140,9 +146,10 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             try {
                 node.getBoundsInScreen(r)
                 // Větve mimo okolí bubliny vůbec neprocházíme — šetří čas.
-                if (!Rect.intersects(r, zone) || !node.isVisibleToUser) continue
+                val passThrough = !node.isVisibleToUser
+                if (!passThrough && !Rect.intersects(r, zone)) continue
                 if (p.skipAds && looksLikeAd(node)) continue
-                val item = toItem(node)
+                val item = if (passThrough) null else toItem(node)
                 if (item != null) {
                     val size = r.width().toLong() * r.height()
                     val dx = when { cx < r.left -> r.left - cx; cx > r.right -> cx - r.right; else -> 0 }
@@ -189,7 +196,12 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             var keep = false
             try {
                 node.getBoundsInScreen(r)
-                if (r.contains(x, y) && node.isVisibleToUser) {
+                if (!node.isVisibleToUser) {
+                    if (visited < p.maxNodes) {
+                        val kids = children(node, true)
+                        for (i in kids.indices.reversed()) stack.addLast(kids[i])
+                    }
+                } else if (r.contains(x, y)) {
                     val area = r.width().toLong() * r.height()
                     if ((node.isClickable || node.isEditable || node.isCheckable) && area <= bestArea) {
                         recycle(best)
@@ -297,7 +309,9 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             return Item(Item.Kind.BUTTON, text, bounds = r)
         }
 
-        // Obyčejný text
+        // Obyčejný text. Obecný kontejner („View“) s dětmi a textem je na webu
+        // jen jmenovka oblasti („Článek“, „záhlaví“) — skutečný text je v dětech.
+        if (text.isNotEmpty() && cls == "android.view.View" && node.childCount > 0) return null
         if (text.isNotEmpty()) return Item(Item.Kind.TEXT, text, bounds = r)
         if (desc.isNotEmpty() && node.childCount == 0 && !node.isClickable) return Item(Item.Kind.TEXT, desc, bounds = r)
         return null
@@ -307,6 +321,9 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
     private fun postProcess(raw: List<Item>): List<Item> {
         var items = joinInline(raw)
         if (p.skipSymbols) items = items.filter { hasLetterOrDigit(it.label) || it.isFormPart }
+        // Weby schovávají pomocné nadpisy pro čtečky do prvku o pár pixelech
+        // („Vyhledat“, „Osobní menu“). Vidící člověk je nevidí, tak je nečteme.
+        items = items.filter { it.isFormPart || (it.bounds.width() > 12 && it.bounds.height() > 12) }
         if (p.skipCookies) items = items.filter { !(it.kind == Item.Kind.TEXT && isCookieText(it.label)) }
 
         // Pole bez popisku dostane text, který stojí těsně před ním.
@@ -519,7 +536,7 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
         val id = node.viewIdResourceName?.lowercase()
         if (id != null && AD_ID.containsMatchIn(id)) return true
         val t = (node.text ?: node.contentDescription)?.toString()?.trim()?.lowercase() ?: return false
-        return t in AD_WORDS
+        return t in AD_WORDS || AD_LABEL.containsMatchIn(t)
     }
 
     private fun ownText(node: AccessibilityNodeInfo): String =
@@ -532,10 +549,12 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
     }
 
     companion object {
-        private val AD_ID = Regex("""(^|[/:_\-.])(ad|ads|adview|advert|advertisement|banner|sponsor(ed)?|reklama|promo)([_\-.]|$)""")
+        private val AD_ID = Regex("""(^|[/:_\-.])(ad|ads|adview|advert|advertisement|banner|sponsor(ed)?|reklama|promo|sznssp|sklik|adform)([_\-.]|$)""")
+        /** Značky reklam (např. „advert-paw“, „sklik-paw“ u reklam Seznamu). */
+        private val AD_LABEL = Regex("""^(advert|adform|sklik|ad)[-_ ]?paw$|reklamní systém""")
         private val AD_WORDS = setOf(
             "reklama", "inzerce", "sponzorováno", "sponzorovaný obsah", "komerční sdělení",
-            "advertisement", "sponsored", "ad", "ads", "adchoices",
+            "advertisement", "sponsored", "ad", "ads", "adchoices", "reklama ×",
         )
 
         fun clean(cs: CharSequence?): String {
