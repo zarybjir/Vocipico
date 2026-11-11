@@ -454,6 +454,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             visited++
             var keep = false
             try {
+                // OPRAVA PRO WEBVIEW: Kontrola viditelnosti uzlu a zajištění rekurzivního průchodu celého stromu
                 if (n.isScrollable && n.isVisibleToUser) {
                     n.getBoundsInScreen(r)
                     val a = r.width().toLong() * r.height()
@@ -463,7 +464,15 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
                     }
                 }
                 if (visited < prefs.maxNodes) {
-                    for (i in n.childCount - 1 downTo 0) n.getChild(i)?.let { stack.addLast(it) }
+                    for (i in n.childCount - 1 downTo 0) {
+                        n.getChild(i)?.let { child ->
+                            if (child.isVisibleToUser) {
+                                stack.addLast(child)
+                            } else {
+                                ScreenScanner.recycle(child)
+                            }
+                        }
+                    }
                 }
             } catch (_: Exception) {
             } finally {
@@ -617,6 +626,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             var pick: AccessibilityWindowInfo? = null
             for (w in list) {
                 if (w.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+                // OPRAVA PRO GMAIL: Upřednostnit aktivní nebo fokusem opatřené okno, ignorovat skrytá okna na pozadí
                 if (w.isActive || w.isFocused) { pick = w; break }
                 if (pick == null) pick = w
             }
