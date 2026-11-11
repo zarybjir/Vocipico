@@ -619,23 +619,34 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     // ------------------------------------------------------------------
     // Okna a události
 
-    /** Kořen okna aplikace, se kterou člověk právě pracuje (ne bublina, ne klávesnice). */
+  /** Kořen okna aplikace, se kterou člověk právě pracuje (nikdy nepřebírá okna z pozadí). */
     private fun appRoot(): AccessibilityNodeInfo? {
         try {
             val list = windows
-            var pick: AccessibilityWindowInfo? = null
             for (w in list) {
-                if (w.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
-                // OPRAVA PRO GMAIL: Upřednostnit aktivní nebo fokusem opatřené okno, ignorovat skrytá okna na pozadí
-                if (w.isActive || w.isFocused) { pick = w; break }
-                if (pick == null) pick = w
+                // Bereme výhradně okna aplikací, která jsou aktuálně aktivní v popředí
+                if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION && w.isActive) {
+                    val root = w.root
+                    if (root != null) {
+                        // Ověříme, že to není naše vlastní plovoucí okno/bublina
+                        if (root.packageName != packageName) {
+                            return root
+                        }
+                        ScreenScanner.recycle(root)
+                    }
+                }
             }
-            val root = pick?.root
-            if (root != null && root.packageName != packageName) return root
-            ScreenScanner.recycle(root)
         } catch (_: Exception) {
         }
-        return rootInActiveWindow
+        
+        // Pokud aktivní okno systém nevrátí přes windows API, zkusíme bezpečně rootInActiveWindow,
+        // ale pouze pokud odpovídá popředí.
+        val fallback = rootInActiveWindow
+        if (fallback != null && fallback.packageName != packageName) {
+            return fallback
+        }
+        ScreenScanner.recycle(fallback)
+        return null
     }
 
     private fun appName(pkg: String?): String {
