@@ -51,11 +51,11 @@ class ScreenScanner(private val p: Prefs) {
                     val item = toItem(node)
                     if (item != null) {
                         out.add(item)
-                        // Pole, tlačítko apod. už svůj text má — vnitřek nečteme dvakrát.
-                        if (item.kind != Item.Kind.TEXT && item.kind != Item.Kind.HEADING &&
-                            ownText(node).isNotEmpty()
-                        ) descend = false
-                        if (item.kind == Item.Kind.FIELD) descend = false
+                        // OPRAVA PRO WEBCONTENT / NOVINKY: Nezastavovat sestup do hloubky, 
+                        // pokud je prvek kontejnerem nebo textovým blokem, který může obsahovat další odstavce článku.
+                        if (item.kind == Item.Kind.FIELD) {
+                            descend = false
+                        }
                     }
                 }
                 if (descend && visited < maxNodes) {
@@ -337,7 +337,7 @@ class ScreenScanner(private val p: Prefs) {
             while (i < items.size) {
                 var j = i
                 while (j < items.size && (items[j].kind == Item.Kind.LINK ||
-                            items[j].kind == Item.Kind.BUTTON && items[j].label.length <= 20)
+                        items[j].kind == Item.Kind.BUTTON && items[j].label.length <= 20)
                 ) j++
                 val run = j - i
                 if (run >= 6 && items.subList(i, j).count { it.kind == Item.Kind.LINK } >= 4) {
