@@ -48,7 +48,8 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             var descend = true
             try {
                 if (onlyVisible && !node.isVisibleToUser) {
-                    descend = false
+                    // Sem se dostane jen „průchozí“ obal (viz children): sám se
+                    // nečte, ale jeho viditelný obsah ano.
                 } else if (skipAds && looksLikeAd(node)) {
                     descend = false
                 } else {
@@ -223,6 +224,8 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
 
     fun toItem(node: AccessibilityNodeInfo): Item? {
         val cls = node.className?.toString().orEmpty()
+        // WebView nese jen titulek stránky; obsah je v jeho dětech.
+        if (cls.endsWith("WebView")) return null
         val role = roleOf(node)
         val text = clean(node.text)
         val desc = clean(node.contentDescription)
@@ -302,7 +305,7 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
 
     /** Úklid seznamu: odhad popisků polí, sbalení menu, duplicity, cookies, symboly. */
     private fun postProcess(raw: List<Item>): List<Item> {
-        var items = raw
+        var items = joinInline(raw)
         if (p.skipSymbols) items = items.filter { hasLetterOrDigit(it.label) || it.isFormPart }
         if (p.skipCookies) items = items.filter { !(it.kind == Item.Kind.TEXT && isCookieText(it.label)) }
 
@@ -371,10 +374,12 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
         val kids = ArrayList<AccessibilityNodeInfo>(n)
         for (i in 0 until n) {
             val c = node.getChild(i) ?: continue
-            if (onlyVisible && !c.isVisibleToUser) { recycle(c); continue }
+            if (onlyVisible && !c.isVisibleToUser && !hasVisibleInside(c)) { recycle(c); continue }
             kids.add(c)
         }
         if (kids.size < 2) return kids
+        // Webový obsah: kousky jednoho odstavce se překrývají a nic nezakrývají.
+        if (isWeb(node)) return kids
 
         val rects = kids.map { k -> Rect().also { k.getBoundsInScreen(it) } }
         val order = kids.mapIndexed { i, k ->
@@ -387,9 +392,13 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
         for (b in kids.indices) {
             val rb = rects[b]
             val areaB = rb.width().toLong() * rb.height()
-            if (areaB < minCover || !isSolid(kids[b], rb, areaB)) continue
+            // Zakrývat může jen vrstva (kontejner bez vlastního textu), ne text.
+            if (areaB < minCover || kids[b].childCount == 0 || !kids[b].text.isNullOrBlank() ||
+                !isSolid(kids[b], rb, areaB)
+            ) continue
             for (a in kids.indices) {
                 if (a == b || hidden[a] || order[a] >= order[b]) continue
+                if (kids[a].childCount == 0) continue // jednotlivý text/tlačítko se nezakrývá
                 val ra = rects[a]
                 val areaA = ra.width().toLong() * ra.height()
                 if (areaA <= 0) continue
@@ -403,6 +412,34 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
         val res = ArrayList<AccessibilityNodeInfo>(kids.size)
         for (i in kids.indices) if (hidden[i]) recycle(kids[i]) else res.add(kids[i])
         return res
+    }
+
+    /**
+     * Neviditelný prvek, který má přesto viditelný obsah. Chrome takhle vkládá
+     * celou stránku pod obal s nulovou výškou — bez tohohle by se nečetlo nic.
+     * Kontrolují se jen přímé děti (nejvýš 8), ať skrytá část dlouhé stránky
+     * nezdržuje — obal stránky má viditelný obsah hned pod sebou.
+     */
+    private fun hasVisibleInside(node: AccessibilityNodeInfo, depth: Int = 1): Boolean {
+        if (depth == 0) return false
+        val n = minOf(node.childCount, 8)
+        for (i in 0 until n) {
+            val c = node.getChild(i) ?: continue
+            try {
+                if (c.isVisibleToUser || hasVisibleInside(c, depth - 1)) return true
+            } finally {
+                recycle(c)
+            }
+        }
+        return false
+    }
+
+    /** Prvek z webové stránky (Chrome i WebView v aplikacích). */
+    private fun isWeb(node: AccessibilityNodeInfo): Boolean {
+        val cls = node.className?.toString().orEmpty()
+        if (cls.endsWith("WebView")) return true
+        val ex = node.extras ?: return false
+        return ex.containsKey("AccessibilityNodeInfo.chromeRole") || ex.containsKey("ACTION_ARGUMENT_HTML_ELEMENT_STRING")
     }
 
     /** Vrstva je „plná“, když má vlastní text, nebo když ji většinou vyplňuje její obsah. */
@@ -423,6 +460,43 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             if (biggest * 2 >= area) return true
         }
         return false
+    }
+
+    /**
+     * Na webu se odstavec s odkazem rozpadne na kousky: „Návrh, který“ +
+     * odkaz „The Economist“ + „prezentuje jako…“. Kousky na stejném řádku,
+     * které na sebe navazují, se tu slepí zpátky do jedné věty.
+     * Řada samotných odkazů (menu) se neslepuje.
+     */
+    private fun joinInline(items: List<Item>): List<Item> {
+        if (items.size < 2) return items
+        val out = ArrayList<Item>(items.size)
+        var cur = items[0]
+        for (i in 1 until items.size) {
+            val nx = items[i]
+            if (continues(cur, nx)) {
+                val r = Rect(cur.bounds).apply { union(nx.bounds) }
+                val sep = if (nx.label.firstOrNull()?.let { it in ".,;:!?)…“\"" } == true) "" else " "
+                cur = Item(Item.Kind.TEXT, cur.label + sep + nx.label, bounds = r)
+            } else {
+                out.add(cur); cur = nx
+            }
+        }
+        out.add(cur)
+        return out
+    }
+
+    private fun continues(a: Item, b: Item): Boolean {
+        val inline = setOf(Item.Kind.TEXT, Item.Kind.LINK)
+        if (a.kind !in inline || b.kind !in inline) return false
+        if (a.kind != Item.Kind.TEXT && b.kind != Item.Kind.TEXT) return false
+        if (a.label.startsWith("MENU:") || b.label.startsWith("MENU:")) return false
+        // Stejný řádek: b začíná nahoře dřív, než a končí dole.
+        if (b.bounds.top >= a.bounds.bottom || b.bounds.bottom <= a.bounds.top) return false
+        val first = b.label.firstOrNull() ?: return false
+        val last = a.label.lastOrNull() ?: return false
+        return first.isLowerCase() || first in ".,;:!?)…“\"–-" ||
+            (a.kind == Item.Kind.TEXT && last !in ".!?:…")
     }
 
     private fun roleOf(node: AccessibilityNodeInfo): String {
