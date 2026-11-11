@@ -140,6 +140,7 @@ class MainActivity : Activity() {
         switch(Prefs.K_COLLAPSE_MENUS, "Menu s mnoha odkazy", "Řekne jen „Nabídka, 12 položek“.")
         switch(Prefs.K_SKIP_DUPES, "Opakující se texty")
         switch(Prefs.K_SKIP_SYMBOLS, "Ikony a samé symboly")
+        switch(Prefs.K_SKIP_BROWSER_BAR, "Tlačítka prohlížeče", "Domů, karty, menu… Adresa stránky se čte dál.")
         switch(Prefs.K_GUESS_LABELS, "Domýšlet názvy polí", "Pole bez názvu dostane text, který stojí před ním.")
 
         // --- Bublina ---
@@ -168,6 +169,7 @@ class MainActivity : Activity() {
         })
         choice(Prefs.K_LONG_ACTION, "Podržení", actions)
         choice(Prefs.K_DROP_ACTION, "Po přetažení", actions)
+        switch(Prefs.K_HINT_NEXT, "Připomínat „Dvojklepnutím další“", "Když je u bubliny víc věcí, řekne to na konci.")
         switch(Prefs.K_DRAG_LIVE, "Číst už během přetahování", "Jako lupa: zastavíš prst a přečte, co je pod ním.")
         switch(Prefs.K_VIBRATE, "Krátce zavibrovat po klepnutí")
 

@@ -40,6 +40,8 @@ class Prefs(context: Context) {
     val guessLabels get() = b(K_GUESS_LABELS)
     val skipDuplicates get() = b(K_SKIP_DUPES)
     val skipSymbols get() = b(K_SKIP_SYMBOLS)
+    val skipBrowserBar get() = b(K_SKIP_BROWSER_BAR)
+    val hintNext get() = b(K_HINT_NEXT)
 
     // --- Bublina ---
     val showBubble get() = b(K_SHOW_BUBBLE)
@@ -128,6 +130,8 @@ class Prefs(context: Context) {
         const val K_GUESS_LABELS = "guess_labels"
         const val K_SKIP_DUPES = "skip_dupes"
         const val K_SKIP_SYMBOLS = "skip_symbols"
+        const val K_SKIP_BROWSER_BAR = "skip_browser_bar"
+        const val K_HINT_NEXT = "hint_next"
 
         const val K_SHOW_BUBBLE = "show_bubble"
         const val K_BUBBLE_DP = "bubble_dp"
@@ -205,6 +209,8 @@ class Prefs(context: Context) {
             K_GUESS_LABELS to true,
             K_SKIP_DUPES to true,
             K_SKIP_SYMBOLS to true,
+            K_SKIP_BROWSER_BAR to true,
+            K_HINT_NEXT to false,
             K_SHOW_BUBBLE to true,
             K_DRAG_LIVE to false,
             K_VIBRATE to true,

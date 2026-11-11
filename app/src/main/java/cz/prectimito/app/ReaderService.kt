@@ -349,7 +349,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             val seg = phrases.seg(first)
             if (quiet && seg.text == lastHoverLabel) return@post
             lastHoverLabel = seg.text
-            val more = if (!quiet && list.size > 1 && prefs.doubleAction == Prefs.A_NEXT) " Dvojklepnutím další." else ""
+            val more = if (prefs.hintNext && !quiet && list.size > 1 && prefs.doubleAction == Prefs.A_NEXT) " Dvojklepnutím další." else ""
             speaker.speakSegs(listOf(Seg(seg.text + more, seg.rect)))
         }
     }

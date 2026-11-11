@@ -245,6 +245,8 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
 
         // Adresní řádek prohlížeče
         val id = node.viewIdResourceName.orEmpty()
+        // Ovládací tlačítka prohlížeče (domů, karty, menu, zámek) — adresa se čte zvlášť.
+        if (p.skipBrowserBar && BROWSER_BAR_IDS.any { id.endsWith(":id/$it") }) return null
         if (id.endsWith(":id/url_bar") || id.endsWith(":id/url_field") ||
             id.endsWith(":id/mozac_browser_toolbar_url_view") || id.endsWith(":id/location_bar_edit_text")
         ) {
@@ -549,6 +551,17 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
     }
 
     companion object {
+        private val BROWSER_BAR_IDS = listOf(
+            // Chrome
+            "home_button", "optional_toolbar_button", "tab_switcher_button", "menu_button",
+            "location_bar_status", "location_bar_status_icon", "mic_button", "delete_button",
+            // Firefox
+            "mozac_browser_toolbar_menu", "mozac_browser_toolbar_security_indicator", "counter_box",
+            "mozac_browser_toolbar_page_actions", "mozac_browser_toolbar_browser_actions",
+            // Samsung Internet
+            "location_bar_security_icon", "toolbar_menu_button", "tab_manager_button",
+        )
+
         private val AD_ID = Regex("""(^|[/:_\-.])(ad|ads|adview|advert|advertisement|banner|sponsor(ed)?|reklama|promo|sznssp|sklik|adform)([_\-.]|$)""")
         /** Značky reklam (např. „advert-paw“, „sklik-paw“ u reklam Seznamu). */
         private val AD_LABEL = Regex("""^(advert|adform|sklik|ad)[-_ ]?paw$|reklamní systém""")
