@@ -63,7 +63,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     override fun onServiceConnected() {
         super.onServiceConnected()
         prefs = Prefs(this)
-        scanner = ScreenScanner(prefs)
+        scanner = ScreenScanner(prefs) { screenArea() }
         phrases = Phrases(prefs)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         overlays = Overlays(this, wm!!, prefs)
@@ -108,7 +108,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     }
 
     override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
-        if (key == "bubble_x" || key == "bubble_y") return
+        if (key == "bubble_x" || key == "bubble_y" || key == Prefs.K_DUMP_NEXT) return
         if (key == Prefs.K_ENGINE) speaker.checkEngine() else speaker.applySettings()
         applyServiceInfo()
         main.post { overlays.refreshStyle() }
@@ -225,7 +225,28 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     override fun onBubbleTap() {
         buzz()
         if (speaker.speaking) { stopReading(); return }
+        if (prefs.sp.getBoolean(Prefs.K_DUMP_NEXT, false)) {
+            prefs.sp.edit().putBoolean(Prefs.K_DUMP_NEXT, false).apply()
+            dumpScreen()
+            return
+        }
         run(prefs.tapAction)
+    }
+
+    /** Jednorázový ladicí výpis obrazovky do Stažených souborů (zapíná se v nastavení). */
+    private fun dumpScreen() {
+        val gen = ++generation
+        speaker.say("Ukládám výpis obrazovky.")
+        worker.post {
+            val root = appRoot()
+            if (root == null) { speaker.say("Obrazovku teď nejde přečíst."); return@post }
+            val found = scanner.scan(root)
+            val root2 = appRoot() ?: return@post
+            val text = ScreenDump.build(root2, scanner, found)
+            if (gen != generation) return@post
+            val where = ScreenDump.save(this, text)
+            speaker.say(if (where != null) "Výpis je uložený. $where." else "Výpis se nepodařilo uložit.")
+        }
     }
 
     override fun onBubbleDoubleTap() {
@@ -591,6 +612,7 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         }, 400)
     }
 
+    /** Kořen aktivního okna aplikace, se kterou člověk pracuje (ne bublina, ne klávesnice). */
     private fun appRoot(): AccessibilityNodeInfo? {
         try {
             val list = windows

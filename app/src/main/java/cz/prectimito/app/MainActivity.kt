@@ -235,6 +235,19 @@ class MainActivity : Activity() {
         text("Méně = rychlejší, ale u dlouhých stránek může něco vynechat.", 16f, dim)
         switch(Prefs.K_THOROUGH, "Důkladné hledání", "Najde víc, ale je pomalejší. Zapni, jen když něco chybí.")
 
+        section("Když něco čte špatně")
+        text(
+            "Ladicí výpis ukáže, jak obrazovku vidí Android a co z ní appka vybrala. " +
+                "Po zapnutí přepni do aplikace, kde čtení nefunguje, a klepni na bublinu: " +
+                "místo čtení se jednou uloží výpis do Stažených souborů. Ten pak můžeš poslat, " +
+                "komu chceš. Pozor, obsahuje text z obrazovky (hesla ne).", 16f, dim
+        )
+        button("Uložit ladicí výpis po dalším klepnutí") {
+            if (ReaderService.instance == null) { toastSay("Nejdřív zapni čtečku."); return@button }
+            prefs.sp.edit().putBoolean(Prefs.K_DUMP_NEXT, true).apply()
+            toastSay("Hotovo. Teď přepni do aplikace, kde čtení nefunguje, a klepni na bublinu.")
+        }
+
         section("")
         button("Obnovit výchozí nastavení") {
             AlertDialog.Builder(this)

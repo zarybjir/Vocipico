@@ -94,8 +94,7 @@ class Phrases(private val p: Prefs) {
             }
             if (p.readText) {
                 var budget = p.maxTextChars
-                for (it in content) {
-                    if (it.kind != Item.Kind.TEXT) continue
+                for (it in mainText(content)) {
                     if (budget <= 0) break
                     val s = clip(it.label, budget)
                     budget -= s.length
@@ -131,10 +130,24 @@ class Phrases(private val p: Prefs) {
         return out
     }
 
-    /** Souvislý text (čtení článku). */
-    fun bodyText(items: List<Item>): List<Seg> =
-        items.filter { it.kind == Item.Kind.TEXT || it.kind == Item.Kind.HEADING }
+    /** Souvislý text (čtení článku): nadpisy a hlavní text bez útržků z menu. */
+    fun bodyText(items: List<Item>): List<Seg> {
+        val main = mainText(items).toHashSet()
+        return items.filter { it.kind == Item.Kind.HEADING || it in main }
             .map { Seg(if (it.kind == Item.Kind.HEADING) "${it.label}." else sentence(it.label), it.bounds) }
+    }
+
+    /**
+     * Hlavní text obrazovky. Na webu kolem článku bývá spousta krátkých
+     * útržků (rubriky, datum, „Sdílet“, popisky fotek). Když jsou na obrazovce
+     * aspoň dva skutečné odstavce, čtou se jen texty od 30 znaků výš;
+     * jinak (aplikace, krátké zprávy) se čte všechno.
+     */
+    fun mainText(items: List<Item>): List<Item> {
+        val texts = items.filter { it.kind == Item.Kind.TEXT }
+        val paragraphs = texts.count { it.label.length >= 80 }
+        return if (paragraphs >= 2) texts.filter { it.label.length >= 30 } else texts
+    }
 
     private fun wanted(it: Item) = when (it.kind) {
         Item.Kind.HEADING -> p.readHeadings

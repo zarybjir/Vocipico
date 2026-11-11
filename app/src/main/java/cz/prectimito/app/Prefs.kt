@@ -171,6 +171,7 @@ class Prefs(context: Context) {
         const val K_VOICE = "voice"
 
         const val K_MAX_NODES = "max_nodes"
+        const val K_DUMP_NEXT = "dump_next"
         const val K_THOROUGH = "thorough"
 
         // Akce bubliny
@@ -246,7 +247,7 @@ class Prefs(context: Context) {
             K_BUBBLE_OPACITY to 90,
             K_RATE to 100,
             K_PITCH to 100,
-            K_MAX_NODES to 500,
+            K_MAX_NODES to 1000,
             K_CAPTION_SIZE to 34,
             K_BUBBLE_DP to 88,
             K_ICON_SCALE to 100,

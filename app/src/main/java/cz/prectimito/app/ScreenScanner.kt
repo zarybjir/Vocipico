@@ -25,7 +25,8 @@ class Item(
  * Žádná AI: jen pravidla. Projde nejvýš [maxNodes] prvků, aby to bylo rychlé
  * i na slabém telefonu.
  */
-class ScreenScanner(private val p: Prefs) {
+/** [screenArea] = plocha displeje v pixelech (mění se při otočení, proto funkce). */
+class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
 
     fun scan(root: AccessibilityNodeInfo?): List<Item> {
         val out = ArrayList<Item>(64)
@@ -35,6 +36,9 @@ class ScreenScanner(private val p: Prefs) {
         val skipAds = p.skipAds
 
         // Iterativní průchod do hloubky (žádná rekurze = žádné přetečení zásobníku).
+        // Do limitu se počítají jen prvky, které opravdu procházíme: neviditelné
+        // a zakryté větve se vůbec nenačítají (jinak by dlouhá webová stránka
+        // vyčerpala limit v menu a k článku by se čtení nedostalo).
         val stack = ArrayDeque<AccessibilityNodeInfo>()
         stack.addLast(root)
         var visited = 0
@@ -51,19 +55,17 @@ class ScreenScanner(private val p: Prefs) {
                     val item = toItem(node)
                     if (item != null) {
                         out.add(item)
-                        // OPRAVA PRO WEBCONTENT / NOVINKY: Nezastavovat sestup do hloubky, 
-                        // pokud je prvek kontejnerem nebo textovým blokem, který může obsahovat další odstavce článku.
-                        if (item.kind == Item.Kind.FIELD) {
-                            descend = false
-                        }
+                        // Pole, tlačítko, odkaz apod. už svůj text má — vnitřek
+                        // nečteme, jinak by zazněl dvakrát. Text a nadpis procházíme dál.
+                        if (item.kind != Item.Kind.TEXT && item.kind != Item.Kind.HEADING &&
+                            ownText(node).isNotEmpty()
+                        ) descend = false
+                        if (item.kind == Item.Kind.FIELD) descend = false
                     }
                 }
                 if (descend && visited < maxNodes) {
-                    val n = node.childCount
-                    for (i in n - 1 downTo 0) {
-                        val c = node.getChild(i) ?: continue
-                        stack.addLast(c)
-                    }
+                    val kids = children(node, onlyVisible)
+                    for (i in kids.indices.reversed()) stack.addLast(kids[i])
                 }
             } catch (_: Exception) {
                 // Okno se mezitím změnilo — prostě pokračujeme.
@@ -100,9 +102,8 @@ class ScreenScanner(private val p: Prefs) {
                         best = item; bestArea = area
                     }
                     if (visited < maxNodes) {
-                        for (i in node.childCount - 1 downTo 0) {
-                            node.getChild(i)?.let { stack.addLast(it) }
-                        }
+                        val kids = children(node, true)
+                        for (i in kids.indices.reversed()) stack.addLast(kids[i])
                     }
                 }
             } catch (_: Exception) {
@@ -157,7 +158,8 @@ class ScreenScanner(private val p: Prefs) {
                     }
                 }
                 if (visited < p.maxNodes) {
-                    for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
+                    val kids = children(node, true)
+                    for (i in kids.indices.reversed()) stack.addLast(kids[i])
                 }
             } catch (_: Exception) {
             } finally {
@@ -193,7 +195,8 @@ class ScreenScanner(private val p: Prefs) {
                         best = node; bestArea = area; keep = true
                     }
                     if (visited < p.maxNodes) {
-                        for (i in node.childCount - 1 downTo 0) node.getChild(i)?.let { stack.addLast(it) }
+                        val kids = children(node, true)
+                        for (i in kids.indices.reversed()) stack.addLast(kids[i])
                     }
                 }
             } catch (_: Exception) {
@@ -350,6 +353,76 @@ class ScreenScanner(private val p: Prefs) {
             items = res
         }
         return items
+    }
+
+    /**
+     * Děti prvku, které má smysl procházet, v pořadí na obrazovce.
+     *
+     * 1. Neviditelné se rovnou zahodí (šetří limit i čas).
+     * 2. Zakryté se zahodí: když leží dvě vrstvy přes sebe (např. v Gmailu
+     *    otevřený e-mail přes seznam zpráv), Android hlásí jako „viditelné“
+     *    obě. Číst se má jen ta horní. Sourozenec je zakrytý, když ho pozdější
+     *    (výš nakreslený) sourozenec skoro celý překrývá a sám je plný obsahu
+     *    — prázdná průhledná vrstva s jedním tlačítkem nic nezakrývá.
+     */
+    fun children(node: AccessibilityNodeInfo, onlyVisible: Boolean): List<AccessibilityNodeInfo> {
+        val n = node.childCount
+        if (n == 0) return emptyList()
+        val kids = ArrayList<AccessibilityNodeInfo>(n)
+        for (i in 0 until n) {
+            val c = node.getChild(i) ?: continue
+            if (onlyVisible && !c.isVisibleToUser) { recycle(c); continue }
+            kids.add(c)
+        }
+        if (kids.size < 2) return kids
+
+        val rects = kids.map { k -> Rect().also { k.getBoundsInScreen(it) } }
+        val order = kids.mapIndexed { i, k ->
+            // Pořadí kreslení (API 24+); když ho aplikace neuvádí, platí pořadí v seznamu.
+            val d = if (Build.VERSION.SDK_INT >= 24) k.drawingOrder else 0
+            d * 10_000 + i
+        }
+        val minCover = screenArea() / 4
+        val hidden = BooleanArray(kids.size)
+        for (b in kids.indices) {
+            val rb = rects[b]
+            val areaB = rb.width().toLong() * rb.height()
+            if (areaB < minCover || !isSolid(kids[b], rb, areaB)) continue
+            for (a in kids.indices) {
+                if (a == b || hidden[a] || order[a] >= order[b]) continue
+                val ra = rects[a]
+                val areaA = ra.width().toLong() * ra.height()
+                if (areaA <= 0) continue
+                val inter = Rect()
+                if (inter.setIntersect(ra, rb) && inter.width().toLong() * inter.height() >= areaA * 85 / 100) {
+                    hidden[a] = true
+                }
+            }
+        }
+        if (hidden.none { it }) return kids
+        val res = ArrayList<AccessibilityNodeInfo>(kids.size)
+        for (i in kids.indices) if (hidden[i]) recycle(kids[i]) else res.add(kids[i])
+        return res
+    }
+
+    /** Vrstva je „plná“, když má vlastní text, nebo když ji většinou vyplňuje její obsah. */
+    private fun isSolid(node: AccessibilityNodeInfo, r: Rect, area: Long): Boolean {
+        if (!node.text.isNullOrBlank()) return true
+        var biggest = 0L
+        for (i in 0 until node.childCount) {
+            val c = node.getChild(i) ?: continue
+            try {
+                if (c.isVisibleToUser) {
+                    val cr = Rect().also { c.getBoundsInScreen(it) }
+                    val inter = Rect()
+                    if (inter.setIntersect(cr, r)) biggest = maxOf(biggest, inter.width().toLong() * inter.height())
+                }
+            } finally {
+                recycle(c)
+            }
+            if (biggest * 2 >= area) return true
+        }
+        return false
     }
 
     private fun roleOf(node: AccessibilityNodeInfo): String {
