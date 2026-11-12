@@ -176,6 +176,8 @@ class Prefs(context: Context) {
 
         const val K_MAX_NODES = "max_nodes"
         const val K_DUMP_NEXT = "dump_next"
+        const val K_BUBBLE_ERROR = "bubble_error"
+        const val K_BUBBLE_RESET = "bubble_reset"
         const val K_THOROUGH = "thorough"
 
         // Akce bubliny

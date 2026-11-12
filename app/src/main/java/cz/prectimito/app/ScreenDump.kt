@@ -69,16 +69,13 @@ object ScreenDump {
 
                 if (count < MAX_NODES) {
                     // Které děti by appka nechala (viditelné a nezakryté)?
-                    val kept = scanner.children(n, true)
-                    val keptBounds = kept.map { k -> Rect().also { k.getBoundsInScreen(it) } }
-                    kept.forEach { ScreenScanner.recycle(it) }
-                    val all = ArrayList<AccessibilityNodeInfo>()
-                    for (i in 0 until n.childCount) n.getChild(i)?.let { all.add(it) }
-                    for (i in all.indices.reversed()) {
-                        val c = all[i]
-                        val cb = Rect().also { c.getBoundsInScreen(it) }
-                        if (c.isVisibleToUser && keptBounds.none { it == cb }) {
-                            sb.append("  ".repeat(minOf(depth + 1, 30))).append("X zakryté: ")
+                    val hiddenIdx = ArrayList<Int>()
+                    scanner.children(n, true, hiddenIdx).forEach { ScreenScanner.recycle(it) }
+                    for (i in n.childCount - 1 downTo 0) {
+                        val c = n.getChild(i) ?: continue
+                        if (i in hiddenIdx) {
+                            val cb = Rect().also { c.getBoundsInScreen(it) }
+                            sb.append("  ".repeat(minOf(depth + 1, 30))).append("X zakryté (nečte se): ")
                                 .append(c.className?.toString().orEmpty().substringAfterLast('.'))
                                 .append(' ').append(cb.toShortString()).append('\n')
                         }

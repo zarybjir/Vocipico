@@ -146,6 +146,19 @@ class MainActivity : Activity() {
         // --- Bublina ---
         section("Bublina")
         switch(Prefs.K_SHOW_BUBBLE, "Zobrazovat bublinu")
+        button("Bublina není vidět? Vrátit ji na místo") {
+            if (ReaderService.instance == null) { toastSay("Nejdřív zapni čtečku."); return@button }
+            val err = prefs.sp.getString(Prefs.K_BUBBLE_ERROR, null)
+            prefs.sp.edit()
+                .putInt("bubble_x", -1).putInt("bubble_y", -1)
+                .putBoolean(Prefs.K_SHOW_BUBBLE, true)
+                .putLong(Prefs.K_BUBBLE_RESET, System.currentTimeMillis())
+                .apply()
+            toastSay(
+                "Bublina by teď měla být vpravo uprostřed obrazovky." +
+                    (if (err != null) "\n\nTelefon ji předtím odmítl zobrazit: $err" else "")
+            )
+        }
         slider(Prefs.K_BUBBLE_DP, "Velikost bubliny", 40, 160, 8) { "$it" }
         slider(Prefs.K_ICON_SCALE, "Velikost symbolu v bublině", 50, 150, 10) { "$it %" }
         text("Symbol reproduktoru (spustit čtení) a čtverečku (zastavit čtení).", 16f, dim)

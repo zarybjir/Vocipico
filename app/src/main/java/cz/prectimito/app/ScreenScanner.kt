@@ -387,14 +387,20 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
      *    (výš nakreslený) sourozenec skoro celý překrývá a sám je plný obsahu
      *    — prázdná průhledná vrstva s jedním tlačítkem nic nezakrývá.
      */
-    fun children(node: AccessibilityNodeInfo, onlyVisible: Boolean): List<AccessibilityNodeInfo> {
+    fun children(
+        node: AccessibilityNodeInfo,
+        onlyVisible: Boolean,
+        /** Sem se (pro ladicí výpis) zapíšou pořadová čísla dětí přeskočených jako zakryté. */
+        hiddenOut: MutableList<Int>? = null,
+    ): List<AccessibilityNodeInfo> {
         val n = node.childCount
         if (n == 0) return emptyList()
         val kids = ArrayList<AccessibilityNodeInfo>(n)
+        val index = ArrayList<Int>(n)
         for (i in 0 until n) {
             val c = node.getChild(i) ?: continue
             if (onlyVisible && !c.isVisibleToUser && !hasVisibleInside(c)) { recycle(c); continue }
-            kids.add(c)
+            kids.add(c); index.add(i)
         }
         if (kids.size < 2) return kids
         // Webový obsah: kousky jednoho odstavce se překrývají a nic nezakrývají.
@@ -413,7 +419,7 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
             val areaB = rb.width().toLong() * rb.height()
             // Zakrývat může jen vrstva (kontejner bez vlastního textu), ne text.
             if (areaB < minCover || kids[b].childCount == 0 || !kids[b].text.isNullOrBlank() ||
-                !isSolid(kids[b], rb, areaB)
+                !isSolid(kids[b], rb, areaB) || !hasContent(kids[b])
             ) continue
             for (a in kids.indices) {
                 if (a == b || hidden[a] || order[a] >= order[b]) continue
@@ -429,8 +435,38 @@ class ScreenScanner(private val p: Prefs, private val screenArea: () -> Long) {
         }
         if (hidden.none { it }) return kids
         val res = ArrayList<AccessibilityNodeInfo>(kids.size)
-        for (i in kids.indices) if (hidden[i]) recycle(kids[i]) else res.add(kids[i])
+        for (i in kids.indices) {
+            if (hidden[i]) { hiddenOut?.add(index[i]); recycle(kids[i]) } else res.add(kids[i])
+        }
         return res
+    }
+
+    /**
+     * Je ve vrstvě opravdu něco k vidění (text, popisek, tlačítko)? Prázdná
+     * průhledná vrstva přes celou obrazovku (třeba panel příloh ve Zprávách
+     * Samsungu) nesmí „zakrýt“ celou aplikaci pod sebou.
+     * Prohledá se nejvýš 60 prvků do hloubky 6.
+     */
+    private fun hasContent(layer: AccessibilityNodeInfo): Boolean {
+        val stack = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+        for (i in 0 until layer.childCount) layer.getChild(i)?.let { stack.addLast(it to 1) }
+        var seen = 0
+        var found = false
+        while (stack.isNotEmpty()) {
+            val (c, d) = stack.removeLast()
+            try {
+                if (!found && seen < 60 && c.isVisibleToUser) {
+                    seen++
+                    if (!c.text.isNullOrBlank() || !c.contentDescription.isNullOrBlank() ||
+                        c.isClickable || c.isEditable
+                    ) found = true
+                    else if (d < 6) for (i in 0 until c.childCount) c.getChild(i)?.let { stack.addLast(it to d + 1) }
+                }
+            } finally {
+                recycle(c)
+            }
+        }
+        return found
     }
 
     /**

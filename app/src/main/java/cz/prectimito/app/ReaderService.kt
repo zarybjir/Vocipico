@@ -108,7 +108,12 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     }
 
     override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
-        if (key == "bubble_x" || key == "bubble_y" || key == Prefs.K_DUMP_NEXT) return
+        if (key == "bubble_x" || key == "bubble_y" || key == Prefs.K_DUMP_NEXT || key == Prefs.K_BUBBLE_ERROR) return
+        if (key == Prefs.K_BUBBLE_RESET) {
+            // Vrátit bublinu na výchozí místo (odebrat a přidat znovu).
+            main.post { removeBubble(); bubbleTries = 0; updateBubble() }
+            return
+        }
         if (key == Prefs.K_ENGINE) speaker.checkEngine() else speaker.applySettings()
         applyServiceInfo()
         main.post { overlays.refreshStyle() }
@@ -198,10 +203,18 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             try {
                 wm?.addView(v, p)
                 bubble = v; lp = p
-            } catch (_: Exception) {
+                bubbleTries = 0
+                prefs.sp.edit().remove(Prefs.K_BUBBLE_ERROR).apply()
+            } catch (e: Exception) {
+                // Na některých telefonech systém okno hned po zapnutí služby
+                // odmítne; zkusit to ještě párkrát, pak to ukázat v nastavení.
+                prefs.sp.edit().putString(Prefs.K_BUBBLE_ERROR, e.javaClass.simpleName + ": " + (e.message ?: "")).apply()
+                if (bubbleTries++ < 3) main.postDelayed({ updateBubble() }, 1500L * bubbleTries)
             }
         }
     }
+
+    private var bubbleTries = 0
 
     private fun removeBubble() {
         val v = bubble ?: return
