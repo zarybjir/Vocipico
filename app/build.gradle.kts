@@ -12,8 +12,8 @@ android {
         // Android 7.0 — ať to běží i na starším telefonu.
         minSdk = 24
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.8"
+        versionCode = 10
+        versionName = "1.9"
     }
 
     // Podepisování release buildu: cesta ke klíči (PMT_KEYSTORE) a heslo

@@ -69,11 +69,15 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         overlays = Overlays(this, wm!!, prefs)
         speaker = Speaker(
             this, prefs,
-            onSpeakingChanged = { on -> main.post { bubble?.speaking = on } },
-            onSegment = { seg -> main.post { overlays.show(seg) { stopReading() } } },
+            onSpeakingChanged = { on ->
+                main.post { bubble?.speaking = on }
+                if (on) startPlaceWatch() else stopPlaceWatch()
+            },
+            onSegment = { seg -> main.post { overlays.show(seg) } },
         )
         workerThread = HandlerThread("ctecka").also { it.start() }
         worker = Handler(workerThread.looper)
+        placeHandler = Handler(workerThread.looper)
         prefs.sp.registerOnSharedPreferenceChangeListener(this)
         val filter = IntentFilter(Intent.ACTION_SCREEN_OFF)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -238,10 +242,11 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     override fun onBubbleTap() {
         buzz()
         if (speaker.speaking) { stopReading(); return }
-        if (prefs.sp.getBoolean(Prefs.K_DUMP_NEXT, false)) {
-            prefs.sp.edit().putBoolean(Prefs.K_DUMP_NEXT, false).apply()
-            dumpScreen()
-            return
+        val armed = try { prefs.sp.getLong(Prefs.K_DUMP_NEXT, 0L) } catch (_: ClassCastException) { 0L }
+        if (armed != 0L) {
+            prefs.sp.edit().remove(Prefs.K_DUMP_NEXT).apply()
+            // Výpis platí jen 5 minut po zapnutí, ať nezůstane „nabitý“ napořád.
+            if (System.currentTimeMillis() - armed in 0..300_000L) { dumpScreen(); return }
         }
         run(prefs.tapAction)
     }
@@ -611,6 +616,71 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
         return ERROR_WORDS.any { it in l }
     }
 
+    // ------------------------------------------------------------------
+    // Hlídání místa: když člověk během čtení odejde jinam (jiná aplikace,
+    // jiné okno, jiná webová stránka, stažená lišta), čtení skončí.
+
+    private lateinit var placeHandler: Handler
+    @Volatile private var placeAtStart: Triple<String, Int, String>? = null
+
+    private val placeCheck = object : Runnable {
+        override fun run() {
+            if (!speaker.speaking || !prefs.stopOnAppChange) return
+            val now = currentPlace()
+            val start = placeAtStart
+            if (now != null) {
+                if (start == null) placeAtStart = now
+                else if (now.first != start.first || now.second != start.second ||
+                    (now.third.isNotEmpty() && start.third.isNotEmpty() && now.third != start.third)
+                ) {
+                    // Jen umlčet; rozpracovaná hlášení (např. o novém okně) nechat.
+                    generation++
+                    speaker.stop()
+                    return
+                }
+            }
+            placeHandler.postDelayed(this, 1000)
+        }
+    }
+
+    private fun startPlaceWatch() {
+        if (!::placeHandler.isInitialized) return
+        placeHandler.removeCallbacks(placeCheck)
+        placeAtStart = null
+        placeHandler.post(placeCheck)
+    }
+
+    private fun stopPlaceWatch() {
+        if (::placeHandler.isInitialized) placeHandler.removeCallbacks(placeCheck)
+    }
+
+    /** Kde člověk právě je: aplikace, okno a (v prohlížeči) adresa stránky. */
+    private fun currentPlace(): Triple<String, Int, String>? {
+        return try {
+            var active: AccessibilityWindowInfo? = null
+            for (w in windows) {
+                if (w.isActive && w.type != AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) { active = w; break }
+            }
+            val root = active?.root ?: return null
+            val pkg = root.packageName?.toString().orEmpty()
+            if (pkg == packageName) { ScreenScanner.recycle(root); return null }
+            var url = ""
+            for (id in URL_BAR_IDS) {
+                val found = root.findAccessibilityNodeInfosByViewId("$pkg:id/$id")
+                if (!found.isNullOrEmpty()) {
+                    url = found[0].text?.toString().orEmpty().substringBefore('#')
+                    found.forEach { ScreenScanner.recycle(it) }
+                    break
+                }
+            }
+            val place = Triple(pkg, root.windowId, url)
+            ScreenScanner.recycle(root)
+            place
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun announceDialog() {
         val g = ++changeGen
         worker.postDelayed({
@@ -619,7 +689,10 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
             val items = scanner.scan(root)
             if (g != changeGen || items.isEmpty()) return@postDelayed
             val segs = ArrayList<Seg>()
-            segs.add(Seg("Vyskočilo okno."))
+            // Říct, čí okno to je — cizí aplikace tak nemůže hlasem čtečky
+            // předstírat, že mluví telefon nebo banka.
+            val from = appName(root.packageName?.toString())
+            segs.add(Seg(if (from.isNotEmpty()) "Vyskočilo okno aplikace $from." else "Vyskočilo okno."))
             segs.addAll(phrases.summary(items, "", intro = false))
             speaker.speakSegs(segs)
         }, 400)
@@ -675,7 +748,6 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
                     pkg.contains("inputmethod") || pkg.contains("keyboard")
                 ) return
                 lastPackage = pkg
-                if (prefs.stopOnAppChange && speaker.speaking) stopReading()
                 if (prefs.announceAppChange) {
                     val name = appName(pkg)
                     if (name.isNotEmpty()) speaker.say("$name.")
@@ -723,6 +795,8 @@ class ReaderService : AccessibilityService(), BubbleView.Listener, Overlays.Expl
     companion object {
         @Volatile var instance: ReaderService? = null
             private set
+
+        private val URL_BAR_IDS = listOf("url_bar", "url_field", "mozac_browser_toolbar_url_view", "location_bar_edit_text")
 
         private val ERROR_WORDS = listOf(
             "chyba", "chybn", "neplatn", "nesprávn", "špatn", "povinn", "musíte", "nepodařilo",

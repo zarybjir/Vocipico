@@ -107,7 +107,7 @@ class MainActivity : Activity() {
                 "• dvojklepnutí – přečte další prvek vedle bubliny\n" +
                 "• podržení – režim „klepni a přečti“: co ťukneš, to přečte; dvojí ťuknutí stiskne\n" +
                 "• přetažení – posune bublinu a přečte, co je pod ní\n" +
-                "Čtené místo se orámuje žlutě a text se ukáže velkým písmem. Klepnutím na velký text čtení zastavíš.", 18f, dim
+                "Čtené místo se orámuje žlutě. Čtení zastavíš klepnutím na bublinu.", 18f, dim
         )
 
         // --- Co číst ---
@@ -188,16 +188,6 @@ class MainActivity : Activity() {
 
         section("Ukazovat, co se čte")
         switch(Prefs.K_HIGHLIGHT, "Žlutý rámeček kolem čteného místa")
-        switch(Prefs.K_CAPTION, "Velký text toho, co se čte", "Klepnutím na něj čtení zastavíš.")
-        slider(Prefs.K_CAPTION_SIZE, "Velikost písma", 20, 64, 2) { "$it" }
-        choice(
-            Prefs.K_CAPTION_POS, "Kde ukazovat velký text",
-            listOf("auto" to "Tam, kde nepřekáží", "top" to "Vždy nahoře", "bottom" to "Vždy dole")
-        )
-        choice(
-            Prefs.K_CAPTION_COLORS, "Barvy velkého textu",
-            listOf("yellow" to "Žlutá na černé", "white" to "Bílá na černé", "black_on_yellow" to "Černá na žluté")
-        )
 
         section("Režim klepni a přečti")
         text("Zapíná se podržením bubliny. Co ťukneš, to se přečte, ale nic se nespustí. Tažením prstu čte, co je pod ním. Nahoře jsou tlačítka ▲ ▼ pro posun, Čti a Konec.", 18f, dim)
@@ -219,7 +209,7 @@ class MainActivity : Activity() {
         switch(Prefs.K_ANN_FIELD, "Do jakého pole píšu", "Při klepnutí do pole řekne jeho název.")
         switch(Prefs.K_ANN_CLICK, "Na co jsem klepl")
         switch(Prefs.K_ANN_APP, "Název otevřené aplikace")
-        switch(Prefs.K_STOP_ON_CHANGE, "Při přepnutí aplikace přestat číst")
+        switch(Prefs.K_STOP_ON_CHANGE, "Když odejdu jinam, přestat číst", "Jiná aplikace, jiné okno, jiná webová stránka, stažená lišta oznámení.")
         if (Build.VERSION.SDK_INT >= 26) {
             switch(Prefs.K_A11Y_BUTTON, "Tlačítko přístupnosti v liště", "Další způsob, jak spustit čtení.")
         }
@@ -255,11 +245,12 @@ class MainActivity : Activity() {
             "Ladicí výpis ukáže, jak obrazovku vidí Android a co z ní appka vybrala. " +
                 "Po zapnutí přepni do aplikace, kde čtení nefunguje, a klepni na bublinu: " +
                 "místo čtení se jednou uloží výpis do Stažených souborů. Ten pak můžeš poslat, " +
-                "komu chceš. Pozor, obsahuje text z obrazovky (hesla ne).", 16f, dim
+                "komu chceš. Pozor, obsahuje text z obrazovky (hesla, kódy a čísla karet ne). " +
+                "Po odeslání ho ze Stažených souborů smaž. Když do 5 minut neklepneš, nic se neuloží.", 16f, dim
         )
         button("Uložit ladicí výpis po dalším klepnutí") {
             if (ReaderService.instance == null) { toastSay("Nejdřív zapni čtečku."); return@button }
-            prefs.sp.edit().putBoolean(Prefs.K_DUMP_NEXT, true).apply()
+            prefs.sp.edit().putLong(Prefs.K_DUMP_NEXT, System.currentTimeMillis()).apply()
             toastSay("Hotovo. Teď přepni do aplikace, kde čtení nefunguje, a klepni na bublinu.")
         }
 

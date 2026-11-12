@@ -60,10 +60,6 @@ class Prefs(context: Context) {
 
     // --- Vizuální pomoc ---
     val highlight get() = b(K_HIGHLIGHT)
-    val caption get() = b(K_CAPTION)
-    val captionSize get() = i(K_CAPTION_SIZE)
-    val captionPos get() = s(K_CAPTION_POS)
-    val captionColors get() = s(K_CAPTION_COLORS)
 
     // --- Režim klepni a přečti ---
     val exploreDoubleClick get() = b(K_EXPLORE_DOUBLE)
@@ -150,10 +146,6 @@ class Prefs(context: Context) {
         const val K_AUTO_SCROLL = "auto_scroll"
 
         const val K_HIGHLIGHT = "highlight"
-        const val K_CAPTION = "caption"
-        const val K_CAPTION_SIZE = "caption_size"
-        const val K_CAPTION_POS = "caption_pos"
-        const val K_CAPTION_COLORS = "caption_colors"
         const val K_EXPLORE_DOUBLE = "explore_double"
         const val K_CH_DIALOGS = "ch_dialogs"
         const val K_CH_TOASTS = "ch_toasts"
@@ -219,7 +211,6 @@ class Prefs(context: Context) {
             K_AUTO_SCROLL to false,
             K_HIGHLIGHT to true,
             K_HIDE_SENSITIVE to true,
-            K_CAPTION to true,
             K_EXPLORE_DOUBLE to true,
             K_CH_DIALOGS to true,
             K_CH_TOASTS to true,
@@ -244,8 +235,6 @@ class Prefs(context: Context) {
             K_DROP_ACTION to A_UNDER,
             K_LANGUAGE to "cs",
             K_STREAM to "media",
-            K_CAPTION_POS to "auto",
-            K_CAPTION_COLORS to "yellow",
         )
         val DEFAULT_INT = mapOf(
             K_MAX_HEADINGS to 3,
@@ -256,7 +245,6 @@ class Prefs(context: Context) {
             K_RATE to 100,
             K_PITCH to 100,
             K_MAX_NODES to 1000,
-            K_CAPTION_SIZE to 34,
             K_BUBBLE_DP to 88,
             K_ICON_SCALE to 100,
             K_BAR_SIZE to 64,

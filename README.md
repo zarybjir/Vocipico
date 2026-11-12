@@ -25,9 +25,10 @@ Každé gesto jde v nastavení přepnout na jinou akci.
 
 ## Co je navíc oproti vestavěné čtečce
 
-- **Ukáže, co čte.** Čtené místo se orámuje tlustým žlutým rámečkem a text
-  se ukáže obřím písmem dole nebo nahoře (tam, kde nepřekáží). Klepnutím
-  na velký text se čtení zastaví.
+- **Ukáže, kde čte.** Čtené místo se orámuje tlustým žlutým rámečkem
+  (dá se vypnout). Čtený text se nikde nezobrazuje.
+- **Přestane číst, když odejdeš.** Jiná aplikace, jiné okno, jiná webová
+  stránka nebo stažená lišta oznámení čtení ukončí.
 - **Režim klepni a přečti.** Co ťukneš, to se přečte, ale nic se nespustí.
   Tažením prstu čte, co je pod ním. Dvojím ťuknutím se prvek stiskne.
   Nahoře jsou velká tlačítka ▲ ▼ (posun), Čti (čtení textu) a Konec.

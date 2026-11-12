@@ -24,7 +24,6 @@ import android.widget.TextView
 /**
  * Vizuální pomoc pro člověka, který špatně vidí:
  *  - žlutý rámeček kolem toho, co se právě čte,
- *  - velký titulek s právě čteným textem,
  *  - režim „klepni a přečti“ (průhledná vrstva přes celou obrazovku).
  * Vše se volá z hlavního vlákna.
  */
@@ -34,98 +33,23 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
     private fun dp(v: Int) = (v * density).toInt()
 
     // ------------------------------------------------------------------
-    // Rámeček + titulek
+    // Rámeček kolem čteného místa
 
     private var frame: FrameView? = null
-    private var caption: TextView? = null
-    private var captionLp: WindowManager.LayoutParams? = null
 
-    /** Ukáže, co se právě čte (seg == null → skrýt). */
-    fun show(seg: Seg?, onCaptionTap: () -> Unit) {
-        if (seg == null) { hideReading(); return }
-        if (p.highlight && seg.rect != null && !seg.rect.isEmpty) {
+    /** Orámuje, co se právě čte (seg == null → skrýt). Text se nikde nezobrazuje. */
+    fun show(seg: Seg?) {
+        if (seg != null && p.highlight && seg.rect != null && !seg.rect.isEmpty) {
             val f = frame ?: FrameView(ctx).also { v ->
                 frame = v
                 add(v, fullScreen(touchable = false))
             }
             f.setTarget(seg.rect)
         } else frame?.setTarget(null)
-
-        if (p.caption) {
-            val c = caption ?: makeCaption(onCaptionTap)
-            c.text = seg.text
-            applyCaptionStyle(c)
-            val lp = captionLp ?: return
-            val screenH = ctx.resources.displayMetrics.heightPixels
-            val wantTop = when (p.captionPos) {
-                "top" -> true
-                "bottom" -> false
-                // Auto: titulek na opačnou polovinu, než je čtený prvek.
-                else -> seg.rect != null && seg.rect.centerY() > screenH / 2
-            }
-            val g = if (wantTop) Gravity.TOP else Gravity.BOTTOM
-            val touchable = (lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0
-            if (lp.gravity != g || !touchable) {
-                lp.gravity = g
-                lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-                try { wm.updateViewLayout(c, lp) } catch (_: Exception) {}
-            }
-            c.visibility = View.VISIBLE
-        }
     }
 
-    fun hideReading() {
-        frame?.setTarget(null)
-        hideCaption()
-    }
-
-    /** Skrytý titulek nesmí chytat dotyky určené aplikaci pod ním. */
-    private fun hideCaption() {
-        val c = caption ?: return
-        c.visibility = View.GONE
-        val lp = captionLp ?: return
-        if ((lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) == 0) {
-            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-            try { wm.updateViewLayout(c, lp) } catch (_: Exception) {}
-        }
-    }
-
-    private fun makeCaption(onTap: () -> Unit): TextView {
-        val t = TextView(ctx)
-        t.setPadding(dp(16), dp(12), dp(16), dp(12))
-        t.maxLines = 8
-        t.setLineSpacing(0f, 1.1f)
-        t.setOnClickListener { onTap() }
-        val lp = WindowManager.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        lp.gravity = Gravity.BOTTOM
-        captionLp = lp
-        caption = t
-        add(t, lp)
-        return t
-    }
-
-    private fun applyCaptionStyle(t: TextView) {
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, p.captionSize.toFloat())
-        val (fg, bg) = when (p.captionColors) {
-            "white" -> Color.WHITE to Color.BLACK
-            "black_on_yellow" -> Color.BLACK to Color.parseColor("#FFD54F")
-            else -> Color.parseColor("#FFD54F") to Color.BLACK
-        }
-        t.setTextColor(fg)
-        t.setBackgroundColor(bg)
-    }
-
-    /** Ukáže titulek bez čtení (používá režim klepni a přečti, když není co číst). */
     fun refreshStyle() {
-        caption?.let { applyCaptionStyle(it) }
-        frame?.invalidate()
         if (!p.highlight) frame?.setTarget(null)
-        if (!p.caption) hideCaption()
     }
 
     // ------------------------------------------------------------------
@@ -201,10 +125,7 @@ class Overlays(private val ctx: Context, private val wm: WindowManager, private 
     fun removeAll() {
         stopExplore()
         frame?.let { remove(it) }
-        caption?.let { remove(it) }
         frame = null
-        caption = null
-        captionLp = null
     }
 
     // ------------------------------------------------------------------

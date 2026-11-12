@@ -30,7 +30,7 @@ object ScreenDump {
         sb.append("=== Co appka vybrala ke čtení (").append(found.size).append(") ===\n")
         for (it in found) {
             sb.append(it.kind.name).append(": ").append(cut(it.label, 120))
-            if (it.value.isNotEmpty()) sb.append(" = ").append(if (it.isPassword) "***" else cut(it.value, 40))
+            if (it.value.isNotEmpty()) sb.append(" = ").append(if (Phrases.isSensitive(it)) "***" else cut(it.value, 40))
             if (it.state.isNotEmpty()) sb.append(" [").append(it.state).append(']')
             sb.append("  ").append(it.bounds.toShortString()).append('\n')
         }
@@ -61,7 +61,9 @@ object ScreenDump {
                 n.viewIdResourceName?.let { sb.append(" #").append(it.substringAfter(":id/")) }
                 val text = n.text
                 if (!text.isNullOrBlank()) {
-                    sb.append(" \"").append(if (n.isPassword) "***" else cut(text.toString(), 100)).append('"')
+                    // Obsah polí pro psaní se nevypisuje vůbec (hesla, kódy, čísla karet).
+                    val hide = n.isPassword || (n.isEditable && !(Build.VERSION.SDK_INT >= 26 && n.isShowingHintText))
+                    sb.append(" \"").append(if (hide) "***" else cut(text.toString(), 100)).append('"')
                 }
                 val desc = n.contentDescription
                 if (!desc.isNullOrBlank()) sb.append(" d=\"").append(cut(desc.toString(), 60)).append('"')
